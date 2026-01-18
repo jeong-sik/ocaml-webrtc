@@ -1,6 +1,25 @@
 # ocaml-webrtc
 
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/jeong-sik/ocaml-webrtc)
+[![OCaml](https://img.shields.io/badge/OCaml-5.x-orange.svg)](https://ocaml.org/)
+[![Status](https://img.shields.io/badge/status-Alpha-yellow.svg)]()
+[![License](https://img.shields.io/badge/license-Private-red.svg)]()
+
 Pure OCaml implementation of WebRTC protocol stack.
+
+## Status
+
+| Component | Status | RFC |
+|-----------|--------|-----|
+| STUN | ✅ Complete | RFC 5389 |
+| TURN | ✅ Complete | RFC 5766 |
+| ICE | 🚧 In Progress | RFC 8445 |
+| DTLS | 🚧 In Progress | RFC 6347 |
+| SCTP | 📋 Planned | RFC 4960 |
+| DCEP | 📋 Planned | RFC 8832 |
+| SDP | ✅ Basic | RFC 8866 |
+
+**Current Phase**: Alpha - Core protocols implemented, integration testing in progress.
 
 ## Features
 
@@ -15,7 +34,11 @@ Pure OCaml implementation of WebRTC protocol stack.
 ## Installation
 
 ```bash
-opam pin add ocaml-webrtc git+ssh://git@github.com/jeong-sik/ocaml-webrtc.git#main
+# From GitHub (recommended)
+opam pin add ocaml-webrtc git+ssh://git@github.com/jeong-sik/ocaml-webrtc.git#main -y
+
+# Or local development
+opam pin add ocaml-webrtc . -y
 ```
 
 ## Usage
@@ -57,6 +80,10 @@ let request = Stun.create_binding_request ()
 - mirage-crypto (cryptography)
 - x509 (certificates)
 - cstruct (binary parsing)
+
+## Related Projects
+
+- [masc-mcp](https://github.com/jeong-sik/masc-mcp) - May use WebRTC for distributed agent coordination
 
 ## License
 
