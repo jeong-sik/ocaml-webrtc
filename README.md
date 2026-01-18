@@ -44,7 +44,7 @@ opam pin add ocaml-webrtc . -y
 ## Usage
 
 ```ocaml
-open Ocaml_webrtc
+open Webrtc
 
 (* Create ICE agent *)
 let agent = Ice.create_agent ~stun_servers:["stun.l.google.com:19302"] ()
