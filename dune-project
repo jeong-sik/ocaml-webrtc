@@ -2,6 +2,8 @@
 (name ocaml-webrtc)
 (version 0.1.0)
 
+(generate_opam_files true)
+
 (package
  (name ocaml-webrtc)
  (synopsis "Pure OCaml WebRTC implementation")
