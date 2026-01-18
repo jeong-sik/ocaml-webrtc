@@ -1,0 +1,32 @@
+(library
+ (name webrtc)
+ (public_name ocaml-webrtc)
+ (synopsis "Pure OCaml WebRTC implementation")
+ (libraries
+   ; Core
+   unix
+   str
+   cstruct
+   ; Crypto
+   mirage-crypto
+   mirage-crypto-rng
+   mirage-crypto-rng.unix  ; RNG initialization (subpackage)
+   mirage-crypto-ec  ; ECDHE key exchange (RFC 8422)
+   digestif
+   ; Networking
+   ipaddr
+   ; Async (optional, for Eio backend)
+   eio
+   eio_posix
+   lwt
+   lwt.unix
+ )
+ ; C stubs for hardware-accelerated CRC32c (ARM64/x86_64)
+ (foreign_stubs
+   (language c)
+   (names crc32c_stubs)
+   (flags (:standard
+     ; ARM64: Enable CRC instructions (M1/M2/M3 Mac)
+     (:include %{project_root}/c_flags.sexp))))
+ (flags (:standard -w -32-69-27-38))  ; Suppress unused warnings during development
+ (preprocess (pps ppx_deriving.show ppx_deriving.eq)))
