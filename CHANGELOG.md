@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-01-19
+
+### Added
+- **Functor-based Transport Interface** (`transport_intf.ml`)
+  - Swappable transport abstraction for DTLS/ICE backends
+- **DTLS Functor Adapter** (`dtls_functor.ml`)
+  - Functorized DTLS stack binding transport implementations
+
+### Changed
+- Export functor transport modules in `webrtc.ml`
+- Bump library version to 0.6.0
+
 ## [0.5.0] - 2025-01-19
 
 ### Added
