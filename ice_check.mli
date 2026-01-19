@@ -36,6 +36,7 @@ type transaction = {
   attempt: int;
   max_attempts: int;
   rto_ms: int;
+  max_rto_ms: int;
   sent_at: float;
 }
 
@@ -86,6 +87,18 @@ type output =
     }
   | No_op
 
+(** {1 Configuration} *)
+
+(** Timing configuration for connectivity checks *)
+type config = {
+  initial_rto_ms: int;  (** RFC 8445 Section 14.3: Initial RTO (default: 500) *)
+  max_rto_ms: int;      (** Maximum RTO after exponential backoff (default: 3000) *)
+  max_attempts: int;    (** Maximum retransmission attempts (default: 7) *)
+}
+
+(** Default configuration per RFC 8445 recommendations *)
+val default_config : config
+
 (** {1 Creation} *)
 
 val create :
@@ -99,7 +112,7 @@ val create :
   is_controlling:bool ->
   tie_breaker:int64 ->
   use_candidate:bool ->
-  max_attempts:int ->
+  ?config:config ->
   unit -> t
 
 (** {1 State Transitions} *)

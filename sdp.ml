@@ -451,8 +451,10 @@ let parse sdp =
 
 let parse_media sdp =
   match parse ("m=" ^ sdp) with
-  | Ok s when List.length s.media > 0 -> Ok (List.hd s.media)
-  | _ -> Error "Failed to parse media"
+  | Ok s -> (match s.media with
+    | m :: _ -> Ok m
+    | [] -> Error "Failed to parse media: no media section")
+  | Error e -> Error ("Failed to parse media: " ^ e)
 
 (** {1 Generation} *)
 

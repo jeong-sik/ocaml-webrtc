@@ -41,12 +41,13 @@ let test_hmac_config () =
     assert_true "secret set" true
   );
 
-  test "init_hmac_secret_from_env with no env var returns false" (fun () ->
+  test "init_hmac_secret_from_env with no env var returns Ok false" (fun () ->
     (* Note: This test assumes SCTP_HMAC_SECRET is not set *)
     (* In CI, we might need to unset it first *)
-    (* For safety, we just test the function doesn't crash *)
-    let _ = Sctp_handshake.init_hmac_secret_from_env () in
-    assert_true "function completed" true
+    (* For safety, we just test the function returns a Result *)
+    match Sctp_handshake.init_hmac_secret_from_env () with
+    | Ok _ -> assert_true "function returned Ok" true
+    | Error _ -> assert_true "function returned Error (env var set but empty)" true
   )
 
 (* ═══════════════════════════════════════════════════════════════════════════ *)
