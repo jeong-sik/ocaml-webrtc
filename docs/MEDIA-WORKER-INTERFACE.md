@@ -19,6 +19,12 @@ first, GStreamer later) using a stable IPC contract.
 - Provide a full video pipeline (VP8/H264) in phase 1.
 - Handle network I/O or SRTP inside the worker.
 
+## Versioning and Compatibility
+
+- Protocol version is declared in the `hello` control message.
+- The core MUST reject workers with a higher major version.
+- The worker MUST tolerate unknown JSON fields for forward compatibility.
+
 ## Architecture Overview
 
 Core (OCaml):
@@ -39,6 +45,16 @@ RTP/RTCP ownership stays in the core. The worker handles codec payloads only.
 - The core spawns the worker and owns its lifetime.
 - The worker communicates over stdin/stdout using a framed binary protocol.
 - The worker MUST NOT open network sockets.
+
+## Lifecycle
+
+1. Core spawns worker process.
+2. Worker sends `hello`.
+3. Core sends `configure`.
+4. Worker sends `ready`.
+5. Core streams PCM frames.
+6. Worker streams encoded frames.
+7. Core sends `close` and terminates worker.
 
 ## IPC Protocol
 
@@ -62,8 +78,11 @@ struct Frame {
 ```
 
 Notes:
+- Header size is 20 bytes. Read header first, then payload.
 - `timestamp` is in RTP ticks (e.g., 48 kHz for Opus).
 - For CONTROL frames, `timestamp` MUST be 0.
+- `length` MUST be <= 262144 in phase 1.
+- `flags` and `reserved` MUST be 0 in phase 1.
 
 ### CONTROL Frames (JSON)
 
@@ -90,6 +109,15 @@ Optional control messages:
 {"type":"close","stream_id":0}
 ```
 
+Control message schema:
+
+- `hello`: version, backend, capabilities
+- `configure`: stream_id, codec, sample_rate, channels, frame_ms, bitrate_bps
+- `ready`: stream_id
+- `stats`: stream_id, encoded_frames, dropped_frames, avg_encode_ms
+- `error`: code, message
+- `close`: stream_id
+
 ## DATA Frames
 
 ### PCM Frame (core -> worker)
@@ -113,6 +141,12 @@ Payload:
 
 Timestamp:
 - Same RTP timestamp as the input PCM frame
+
+## Timing and Backpressure
+
+- Core MUST not send PCM faster than real time.
+- Worker MAY drop frames if it falls behind and must report `dropped_frames`.
+- Core MUST treat worker exit as track failure and trigger teardown/retry.
 
 ## Audio-Only Defaults (Phase 1)
 
@@ -139,6 +173,12 @@ Worker:
 
 - Worker sends `error` control frames and exits with non-zero status on fatal errors.
 - Core treats worker exit as track failure and triggers reconnection or stream teardown.
+
+## Security Considerations
+
+- Worker receives only raw PCM and emits codec payloads.
+- No network access from worker (enforced by process sandboxing where possible).
+- Core validates all `length` fields and caps payload sizes.
 
 ## Future Extensions
 
