@@ -101,8 +101,11 @@ let checksum_bypass_warned = ref false
 type t = {
   (* Connection *)
   mutable conn_state: conn_state;
-  my_vtag: int32;         (** Our verification tag *)
-  peer_vtag: int32;       (** Peer's verification tag *)
+  mutable my_vtag: int32;         (** Our verification tag *)
+  mutable peer_vtag: int32;       (** Peer's verification tag *)
+
+  (* Handshake state (RFC 4960 §5 4-way handshake) *)
+  mutable handshake_params: Sctp_handshake.init_params option;
 
   (* Reliability layer - delegates to existing sctp_reliable *)
   reliable: Sctp_reliable.t;
@@ -178,6 +181,7 @@ let create
     conn_state = Closed;
     my_vtag;
     peer_vtag;
+    handshake_params = None;
     reliable = Sctp_reliable.create ~config ?initial_tsn ();
     config;
     next_stream_seq = 0;
@@ -285,18 +289,66 @@ let process_single_chunk t packet offset =
       | Error e -> [Error ("SACK decode: " ^ e)]
       end
 
-    | 1 -> (* INIT - we're server *)
-      []
+    | 1 -> (* INIT - we're server - RFC 4960 §5.1 *)
+      begin match Sctp_handshake.server_process_init chunk_data with
+      | Ok (_local_params, init_ack) ->
+        (* Server remains STATELESS - cookie holds all state *)
+        let bundle = { Sctp_bundling.chunks = [init_ack]; total_size = Bytes.length init_ack } in
+        let packet = Sctp_bundling.assemble_packet
+          ~vtag:0l  (* INIT-ACK also uses vtag=0 until cookie verified *)
+          ~src_port:t.src_port
+          ~dst_port:t.dst_port
+          bundle
+        in
+        [SendPacket packet]
+      | Error e -> [Error ("INIT processing: " ^ e)]
+      end
 
-    | 2 -> (* INIT-ACK - we're client *)
-      []
+    | 2 -> (* INIT-ACK - we're client - RFC 4960 §5.1 *)
+      begin match t.handshake_params with
+      | None -> [Error "Received INIT-ACK but no handshake in progress"]
+      | Some local_params ->
+        begin match Sctp_handshake.client_process_init_ack chunk_data local_params with
+        | Ok (assoc, cookie_echo) ->
+          (* Update our state with association info *)
+          t.peer_vtag <- assoc.Sctp_handshake.peer_vtag;
+          t.conn_state <- CookieEchoed;
+          let bundle = { Sctp_bundling.chunks = [cookie_echo]; total_size = Bytes.length cookie_echo } in
+          let packet = Sctp_bundling.assemble_packet
+            ~vtag:t.peer_vtag
+            ~src_port:t.src_port
+            ~dst_port:t.dst_port
+            bundle
+          in
+          [SendPacket packet]
+        | Error e -> [Error ("INIT-ACK processing: " ^ e)]
+        end
+      end
 
-    | 10 -> (* COOKIE-ECHO - we're server *)
-      []
+    | 10 -> (* COOKIE-ECHO - we're server - RFC 4960 §5.1 *)
+      begin match Sctp_handshake.server_process_cookie_echo chunk_data with
+      | Ok (assoc, cookie_ack) ->
+        (* Server creates association state from cookie *)
+        t.my_vtag <- assoc.Sctp_handshake.local_vtag;
+        t.peer_vtag <- assoc.Sctp_handshake.peer_vtag;
+        t.conn_state <- Established;
+        let bundle = { Sctp_bundling.chunks = [cookie_ack]; total_size = Bytes.length cookie_ack } in
+        let packet = Sctp_bundling.assemble_packet
+          ~vtag:t.peer_vtag
+          ~src_port:t.src_port
+          ~dst_port:t.dst_port
+          bundle
+        in
+        [SendPacket packet; ConnectionEstablished]
+      | Error e -> [Error ("COOKIE-ECHO processing: " ^ e)]
+      end
 
-    | 11 -> (* COOKIE-ACK - we're client *)
-      t.conn_state <- Established;
-      [ConnectionEstablished]
+    | 11 -> (* COOKIE-ACK - we're client - RFC 4960 §5.1 *)
+      if t.conn_state = CookieEchoed then begin
+        t.conn_state <- Established;
+        [ConnectionEstablished]
+      end else
+        [Error "Received COOKIE-ACK in unexpected state"]
 
     | 4 -> (* HEARTBEAT *)
       begin match Sctp_heartbeat.process_heartbeat chunk_data with
@@ -412,9 +464,20 @@ let process_packet t packet =
       let vtag = Bytes.get_int32_be packet 4 in
       let received_checksum = Bytes.get_int32_be packet 8 in
 
-      (* Verify Verification Tag (RFC 4960 §8.5) *)
-      if vtag <> t.peer_vtag && t.peer_vtag <> 0l then
-        [Error (Printf.sprintf "Vtag mismatch: expected %ld, got %ld" t.peer_vtag vtag)]
+      (* Verify Verification Tag (RFC 4960 §8.5)
+         Accept packets with:
+         - vtag = peer_vtag (normal data packets, COOKIE-ECHO)
+         - vtag = my_vtag (responses to us: COOKIE-ACK, some INIT-ACK)
+         - vtag = 0 (INIT packets)
+         - peer_vtag = 0 (handshake in progress, not yet learned peer's vtag) *)
+      let vtag_valid =
+        vtag = t.peer_vtag ||       (* Normal data *)
+        vtag = t.my_vtag ||         (* Responses addressed to us *)
+        vtag = 0l ||                (* INIT has vtag=0 *)
+        t.peer_vtag = 0l            (* Handshake: peer_vtag not yet set *)
+      in
+      if not vtag_valid then
+        [Error (Printf.sprintf "Vtag mismatch: got %ld, peer=%ld, my=%ld" vtag t.peer_vtag t.my_vtag)]
       else begin
         (* Verify CRC32c checksum (RFC 4960 Appendix B) - In-place, no copy *)
         let verify_checksum =
@@ -665,6 +728,40 @@ let get_stats t = snapshot_stats t.stats
 let get_stats_raw t = t.stats
 let is_established t = t.conn_state = Established
 let can_send t = Sctp_reliable.can_send t.reliable
+
+(** {1 Connection Initiation} *)
+
+(** Initiate SCTP association (client side).
+
+    RFC 4960 §5: Sends INIT chunk to start 4-way handshake.
+    1. Build and send INIT chunk with our parameters
+    2. Transition to CookieWait state
+    3. Wait for INIT-ACK (processed in handle())
+
+    @return SendPacket with INIT chunk wrapped in SCTP header *)
+let initiate t =
+  (* RFC 4960 §5.1: Generate INIT with random vtag and TSN *)
+  let (params, init_chunk, _state) = Sctp_handshake.client_init () in
+
+  (* Store our params for processing INIT-ACK later *)
+  t.handshake_params <- Some params;
+  t.my_vtag <- params.Sctp_handshake.initiate_tag;
+  t.conn_state <- CookieWait;
+
+  (* Wrap INIT chunk in SCTP packet header *)
+  let bundle = { Sctp_bundling.chunks = [init_chunk]; total_size = Bytes.length init_chunk } in
+  let packet = Sctp_bundling.assemble_packet
+    ~vtag:0l  (* INIT uses vtag=0 - RFC 4960 §8.5.1 *)
+    ~src_port:t.src_port
+    ~dst_port:t.dst_port
+    bundle
+  in
+  [SendPacket packet]
+
+(** Initiate (legacy) - Direct Established for testing compatibility *)
+let initiate_direct t =
+  t.conn_state <- Established;
+  [ConnectionEstablished]
 
 (** Get congestion control state *)
 let get_cwnd t = Sctp_reliable.get_cwnd t.reliable

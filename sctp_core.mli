@@ -172,6 +172,25 @@ val is_established : t -> bool
 val can_send : t -> bool
 (** [can_send t] returns true if congestion window allows sending. *)
 
+(** {1 Connection Initiation} *)
+
+val initiate : t -> output list
+(** [initiate t] starts SCTP association (client side).
+
+    RFC 4960 §5 4-way handshake:
+    1. Generates INIT chunk with random vtag and TSN
+    2. Transitions to CookieWait state
+    3. Returns SendPacket with INIT chunk
+
+    The INIT-ACK, COOKIE-ECHO, and COOKIE-ACK are processed
+    automatically in [handle] when received. *)
+
+val initiate_direct : t -> output list
+(** [initiate_direct t] directly transitions to Established state.
+
+    Legacy function for testing without 4-way handshake.
+    Use [initiate] for RFC-compliant connection establishment. *)
+
 (** {1 Congestion Control Metrics} *)
 
 val get_cwnd : t -> int

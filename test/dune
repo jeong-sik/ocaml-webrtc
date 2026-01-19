@@ -98,3 +98,4 @@
 (executable (name buffer_pool_test) (libraries webrtc unix))
 (executable (name sctp_error_test) (libraries webrtc unix))
 (executable (name webrtc_crypto_test) (libraries webrtc unix cstruct))
+(executable (name sctp_core_handshake_test) (libraries webrtc unix digestif))
