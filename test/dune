@@ -102,3 +102,4 @@
 (executable (name dtls_handshake_test) (libraries webrtc unix digestif))
 (executable (name ice_check_test) (libraries webrtc unix))
 (executable (name rtp_test) (libraries webrtc))
+(executable (name srtp_test) (libraries webrtc))
