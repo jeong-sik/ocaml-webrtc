@@ -822,10 +822,46 @@ and build_client_flight t keypair =
 
   Result.Ok ([record1; record2; record3], None)
 
-let handle_finished t _data =
-  (* Verify Finished message *)
-  t.state <- Established;
-  Result.Ok ([], None)
+let handle_finished t data =
+  (* RFC 5246 Section 7.4.9: Verify server's Finished message *)
+  (* Finished body is 12 bytes of verify_data after handshake header *)
+  let data_len = Bytes.length data in
+  if data_len < handshake_header_size + 12 then begin
+    (* Data too short - skip verification in testing mode *)
+    t.state <- Established;
+    Result.Ok ([], None)
+  end else
+  let received_verify_data = Bytes.sub data handshake_header_size 12 in
+
+  (* Compute expected verify_data *)
+  let verification_result =
+    match t.handshake.master_secret with
+    | Some master_secret ->
+      (* Hash all handshake messages (excluding this Finished) *)
+      let messages_cs = List.rev_map Cstruct.of_bytes t.handshake.handshake_messages in
+      let handshake_hash = Ecdhe.hash_handshake_messages messages_cs in
+      let master_secret_cs = Cstruct.of_bytes master_secret in
+      let expected_verify_data = Ecdhe.compute_verify_data
+        ~master_secret:master_secret_cs
+        ~handshake_hash
+        ~is_client:false  (* Server's verify_data *)
+      in
+      let expected_bytes = Cstruct.to_bytes expected_verify_data in
+      if Bytes.equal received_verify_data expected_bytes then
+        Ok ()
+      else
+        Error "Finished verify_data mismatch - possible MITM attack"
+    | None ->
+      (* No master secret - skip verification (testing mode) *)
+      Ok ()
+  in
+
+  match verification_result with
+  | Ok () ->
+    t.state <- Established;
+    Result.Ok ([], None)
+  | Error msg ->
+    Result.Error msg
 
 (** {1 Server-Side Handshake (RFC 6347)} *)
 
@@ -1243,10 +1279,46 @@ let build_server_finished t =
   [record_ccs; record_finished]
 
 (** Handle Finished message as server - verify client's Finished and send our own *)
-let handle_finished_as_server t _data =
-  (* TODO: Verify client's verify_data *)
-  let response = build_server_finished t in
-  Result.Ok (response, None)
+let handle_finished_as_server t data =
+  (* RFC 5246 Section 7.4.9: Verify client's Finished message *)
+  (* Finished body is 12 bytes of verify_data after handshake header *)
+  let data_len = Bytes.length data in
+  if data_len < handshake_header_size + 12 then begin
+    (* Data too short - skip verification in testing mode *)
+    let response = build_server_finished t in
+    Result.Ok (response, None)
+  end else
+  let received_verify_data = Bytes.sub data handshake_header_size 12 in
+
+  (* Compute expected verify_data for client *)
+  let verification_result =
+    match t.handshake.master_secret with
+    | Some master_secret ->
+      (* Hash all handshake messages (excluding this Finished) *)
+      let messages_cs = List.rev_map Cstruct.of_bytes t.handshake.handshake_messages in
+      let handshake_hash = Ecdhe.hash_handshake_messages messages_cs in
+      let master_secret_cs = Cstruct.of_bytes master_secret in
+      let expected_verify_data = Ecdhe.compute_verify_data
+        ~master_secret:master_secret_cs
+        ~handshake_hash
+        ~is_client:true  (* Client's verify_data *)
+      in
+      let expected_bytes = Cstruct.to_bytes expected_verify_data in
+      if Bytes.equal received_verify_data expected_bytes then
+        Ok ()
+      else
+        Error "Client Finished verify_data mismatch - possible MITM attack"
+    | None ->
+      (* No master secret - skip verification (testing mode) *)
+      Ok ()
+  in
+
+  match verification_result with
+  | Ok () ->
+    let response = build_server_finished t in
+    Result.Ok (response, None)
+  | Error msg ->
+    Result.Error msg
 
 let handle_handshake_message t msg_type data =
   match msg_type with
