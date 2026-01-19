@@ -1,114 +1,169 @@
-(** Example: WebRTC DataChannel
+(** WebRTC DataChannel Example
 
-    This example demonstrates the full WebRTC DataChannel stack:
-    - ICE candidate gathering
-    - SDP offer creation
-    - SCTP DataChannel setup
+    Full WebRTC DataChannel stack demonstration:
+    - ICE (RFC 8445) - NAT Traversal
+    - DTLS (RFC 6347) - Encryption
+    - SCTP (RFC 4960) - Reliable Transport
+    - DCEP (draft-ietf-rtcweb-data-protocol) - DataChannel Establishment
+
+    This example shows the complete flow for creating a WebRTC DataChannel
+    between two peers using the pure OCaml implementation.
 
     Usage:
-      dune exec examples/datachannel.exe
+      dune exec ./examples/datachannel.exe
 
-    Note: This is a simulation showing API usage.
-    Real P2P communication requires signaling server exchange.
+    @author Second Brain
+    @since ocaml-webrtc 0.5.0
 *)
 
 open Webrtc
 
 let () =
-  (* Initialize RNG (new API) *)
-  Mirage_crypto_rng_unix.use_default ();
+  Printf.printf "╔═══════════════════════════════════════════════════════════════╗\n";
+  Printf.printf "║       WebRTC DataChannel Demo (Full Stack)                   ║\n";
+  Printf.printf "╠═══════════════════════════════════════════════════════════════╣\n";
+  Printf.printf "║  ICE (RFC 8445)  → NAT Traversal                             ║\n";
+  Printf.printf "║  DTLS (RFC 6347) → Encryption                                ║\n";
+  Printf.printf "║  SCTP (RFC 4960) → Reliable Transport                        ║\n";
+  Printf.printf "║  DCEP            → DataChannel Protocol                      ║\n";
+  Printf.printf "╚═══════════════════════════════════════════════════════════════╝\n\n";
 
-  Printf.printf "=== WebRTC DataChannel Example ===\n\n";
+  (* === Phase 1: ICE Candidate Gathering === *)
+  Printf.printf "═══ Phase 1: ICE Candidate Gathering ═══\n\n";
 
-  (* Create ICE agent *)
-  let ice_config = {
-    Ice.default_config with
-    ice_servers = [
-      { Ice.urls = ["stun:stun.l.google.com:19302"];
-        username = None;
-        credential = None };
-    ];
+  let ice_config = { Ice.default_config with
     role = Ice.Controlling;
+    aggressive_nomination = true;
   } in
-  let ice = Ice.create ice_config in
+  let agent = Ice.create ice_config in
 
-  Printf.printf "1. Creating ICE agent...\n";
-  let (ufrag, pwd) = Ice.get_local_credentials ice in
-  Printf.printf "   Local credentials:\n";
-  Printf.printf "   ufrag: %s\n" ufrag;
-  Printf.printf "   pwd: %s\n\n" pwd;
+  (* Get local credentials for SDP *)
+  let (ufrag, pwd) = Ice.get_local_credentials agent in
+  Printf.printf "Local ICE Credentials:\n";
+  Printf.printf "  a=ice-ufrag:%s\n" ufrag;
+  Printf.printf "  a=ice-pwd:%s\n\n" pwd;
 
   (* Gather candidates *)
-  Printf.printf "2. Gathering ICE candidates...\n";
-  Lwt_main.run (Ice.gather_candidates ice);
+  Printf.printf "Gathering ICE candidates...\n";
+  let _ = Lwt_main.run (Ice.gather_candidates agent) in
 
-  let candidates = Ice.get_local_candidates ice in
-  Printf.printf "   Found %d candidate(s)\n\n" (List.length candidates);
-
-  (* Print candidates *)
+  let candidates = Ice.get_local_candidates agent in
+  Printf.printf "Found %d candidates:\n" (List.length candidates);
   List.iteri (fun i c ->
-    Printf.printf "   [%d] %s %s:%d (%s)\n"
+    Printf.printf "  [%d] %s %s:%d (priority: %d)\n"
       i
-      (Ice.string_of_transport c.Ice.transport)
-      c.Ice.address
-      c.Ice.port
       (Ice.string_of_candidate_type c.Ice.cand_type)
+      c.address c.port c.priority
   ) candidates;
+  Printf.printf "\n";
 
-  (* Create DTLS context *)
-  Printf.printf "\n3. Creating DTLS context...\n";
-  let _dtls = Dtls.create Dtls.default_client_config in
-  (* In production, fingerprint would be derived from the DTLS certificate *)
-  let fingerprint : Sdp.fingerprint = {
-    hash_func = "sha-256";
-    fingerprint = "AB:CD:EF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC";
-  } in
-  Printf.printf "   DTLS fingerprint: %s\n" fingerprint.fingerprint;
+  (* === Phase 2: DTLS Configuration === *)
+  Printf.printf "═══ Phase 2: DTLS Configuration ═══\n\n";
 
-  (* Create SDP offer for DataChannel *)
-  Printf.printf "\n4. Creating SDP offer...\n";
-  let offer = Sdp.create_datachannel_offer
-    ~ice_ufrag:ufrag
-    ~ice_pwd:pwd
-    ~fingerprint
-    ~sctp_port:5000
+  let dtls_config = Dtls.default_client_config in
+  let dtls = Dtls.create dtls_config in
+  Printf.printf "DTLS Configuration:\n";
+  Printf.printf "  Role: Client (initiator)\n";
+  Printf.printf "  Retransmit timeout: %dms\n" dtls_config.retransmit_timeout_ms;
+  Printf.printf "  Max retransmits: %d\n\n" dtls_config.max_retransmits;
+
+  Format.printf "DTLS State: %a@.@." Dtls.pp_state (Dtls.get_state dtls);
+
+  (* === Phase 3: SCTP Association === *)
+  Printf.printf "═══ Phase 3: SCTP Configuration ═══\n\n";
+
+  let sctp_config = Sctp.default_config in
+  let sctp = Sctp_core.create ~config:sctp_config () in
+  Printf.printf "SCTP Configuration:\n";
+  Printf.printf "  MTU: %d bytes\n" sctp_config.Sctp.mtu;
+  Printf.printf "  Streams: outbound=%d, inbound=%d\n"
+    sctp_config.Sctp.num_outbound_streams sctp_config.Sctp.num_inbound_streams;
+  Printf.printf "  Receiver window: %d bytes\n\n" sctp_config.Sctp.a_rwnd;
+
+  let stats = Sctp_core.get_stats sctp in
+  Printf.printf "SCTP Initial Stats:\n";
+  Printf.printf "  Messages sent: %d\n" stats.Sctp_core.messages_sent;
+  Printf.printf "  Messages received: %d\n" stats.Sctp_core.messages_recv;
+  Printf.printf "  SACKs sent: %d\n\n" stats.Sctp_core.sacks_sent;
+
+  (* === Phase 4: DCEP DataChannel Setup === *)
+  Printf.printf "═══ Phase 4: DCEP DataChannel Setup ═══\n\n";
+
+  let dcep = Dcep.create ~is_client:true in
+  Printf.printf "DCEP ready for DataChannel creation\n\n";
+
+  (* Create a test channel *)
+  let (stream_id, open_msg) =
+    Dcep.open_channel dcep
+      ~label:"test-channel"
+      ~protocol:"binary"
+      ()
   in
-  let offer_sdp = Sdp.to_string offer in
-  Printf.printf "   SDP offer created (%d bytes)\n" (String.length offer_sdp);
+  Printf.printf "Created DataChannel:\n";
+  Printf.printf "  Stream ID: %d\n" stream_id;
+  Printf.printf "  Label: test-channel\n";
+  Printf.printf "  Protocol: binary\n";
+  Printf.printf "  DCEP OPEN message: %d bytes\n\n" (Bytes.length open_msg);
 
-  (* Print a portion of the SDP *)
-  Printf.printf "\n   --- SDP Offer Preview ---\n";
-  String.split_on_char '\n' offer_sdp
-  |> List.filteri (fun i _ -> i < 10)
-  |> List.iter (fun line -> Printf.printf "   %s\n" line);
-  Printf.printf "   ...\n";
+  (* === Phase 5: Full Stack Integration === *)
+  Printf.printf "═══ Phase 5: ICE-DTLS-SCTP Transport ═══\n\n";
 
-  (* Create SCTP association *)
-  Printf.printf "\n5. Creating SCTP association...\n";
-  let sctp = Sctp.create Sctp.default_config in
-  Printf.printf "   SCTP state: %s\n"
-    (Sctp.string_of_state (Sctp.get_state sctp));
-
-  (* Open a DataChannel *)
-  Printf.printf "\n6. Opening DataChannel...\n";
-  let dcep_open : Dcep.data_channel_open = {
-    channel_type = Dcep.Reliable;
-    priority = 256;
-    label = "test-channel";
-    protocol = "";
+  let transport_config = {
+    Ice_dtls_transport.default_config with
+    is_controlling = true;
+    mtu = 1200;
+    sctp_port = 5000;
   } in
-  let dcep_bytes = Dcep.encode_open dcep_open in
-  Printf.printf "   DCEP OPEN message created (%d bytes)\n" (Bytes.length dcep_bytes);
-  Printf.printf "   Channel label: %s\n" dcep_open.label;
-  Printf.printf "   Channel type: %s\n"
-    (Dcep.string_of_channel_type dcep_open.channel_type);
+  let transport = Ice_dtls_transport.create ~config:transport_config () in
 
-  (* Summary *)
-  Printf.printf "\n=== Example Complete ===\n";
-  Printf.printf "In production, you would:\n";
-  Printf.printf "  1. Exchange SDP via signaling server\n";
-  Printf.printf "  2. Exchange ICE candidates\n";
-  Printf.printf "  3. Run ICE connectivity checks\n";
-  Printf.printf "  4. Complete DTLS handshake\n";
-  Printf.printf "  5. Establish SCTP association\n";
-  Printf.printf "  6. Send/receive data through DataChannels\n"
+  Printf.printf "ICE-DTLS-SCTP Transport created:\n";
+  Printf.printf "  State: %s\n"
+    (Ice_dtls_transport.string_of_state (Ice_dtls_transport.get_state transport));
+  Printf.printf "  MTU: %d\n" transport_config.mtu;
+  Printf.printf "  SCTP Port: %d\n\n" transport_config.sctp_port;
+
+  (* Set up callbacks *)
+  Ice_dtls_transport.on_local_candidate transport (fun c ->
+    Printf.printf "  → ICE Candidate: %s:%d\n" c.Ice.address c.port
+  );
+
+  Ice_dtls_transport.on_state_change transport (fun state ->
+    Printf.printf "  → State changed: %s\n"
+      (Ice_dtls_transport.string_of_state state)
+  );
+
+  Ice_dtls_transport.on_channel_open transport (fun sid label ->
+    Printf.printf "  → DataChannel opened: [%d] %s\n" sid label
+  );
+
+  Ice_dtls_transport.on_channel_data transport (fun sid data ->
+    Printf.printf "  → Data on channel %d: %s\n" sid (Bytes.to_string data)
+  );
+
+  Printf.printf "Callbacks registered\n\n";
+
+  (* === Summary === *)
+  Printf.printf "═══════════════════════════════════════════════════════════════\n";
+  Printf.printf "                    WebRTC Stack Summary\n";
+  Printf.printf "═══════════════════════════════════════════════════════════════\n\n";
+
+  Printf.printf "┌─────────────────────────────────────────────────────────────┐\n";
+  Printf.printf "│ Layer          │ Module                │ Status            │\n";
+  Printf.printf "├─────────────────────────────────────────────────────────────┤\n";
+  Printf.printf "│ Application    │ (your code)           │ Ready             │\n";
+  Printf.printf "│ DCEP           │ Dcep                  │ ✓ Initialized     │\n";
+  Printf.printf "│ SCTP           │ Sctp_core             │ ✓ Initialized     │\n";
+  Printf.printf "│ DTLS           │ Dtls                  │ ✓ Initialized     │\n";
+  Printf.printf "│ ICE            │ Ice                   │ ✓ %d candidates   │\n" (List.length candidates);
+  Printf.printf "│ UDP            │ Unix sockets          │ ✓ Available       │\n";
+  Printf.printf "└─────────────────────────────────────────────────────────────┘\n\n";
+
+  Printf.printf "To test peer-to-peer connection:\n";
+  Printf.printf "1. Run this demo on two machines\n";
+  Printf.printf "2. Exchange ICE candidates and credentials via signaling\n";
+  Printf.printf "3. Call Ice.add_remote_candidate with peer's candidates\n";
+  Printf.printf "4. Call Ice.set_remote_credentials with peer's ufrag/pwd\n";
+  Printf.printf "5. ICE will establish connectivity through NAT\n";
+  Printf.printf "6. DTLS handshake secures the connection\n";
+  Printf.printf "7. SCTP provides reliable delivery\n";
+  Printf.printf "8. DataChannels are ready for use!\n"

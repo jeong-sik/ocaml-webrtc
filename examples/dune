@@ -1,31 +1,17 @@
-; Examples for ocaml-webrtc
+; WebRTC Example Programs
 
 (executable
  (name stun_client)
- (public_name stun-client)
- (package ocaml-webrtc)
- (libraries webrtc mirage-crypto-rng.unix))
+ (libraries webrtc unix))
 
 (executable
  (name ice_gathering)
- (public_name ice-gathering)
- (package ocaml-webrtc)
- (libraries webrtc mirage-crypto-rng.unix lwt lwt.unix))
+ (libraries webrtc unix lwt lwt.unix))
 
 (executable
  (name dtls_echo)
- (public_name dtls-echo)
- (package ocaml-webrtc)
- (libraries webrtc mirage-crypto-rng.unix lwt lwt.unix))
+ (libraries webrtc unix))
 
 (executable
  (name datachannel)
- (public_name datachannel)
- (package ocaml-webrtc)
- (libraries webrtc mirage-crypto-rng.unix lwt lwt.unix))
-
-(executable
- (name eio_datachannel)
- (public_name eio-datachannel)
- (package ocaml-webrtc)
- (libraries webrtc mirage-crypto-rng.unix eio eio_main eio_posix))
+ (libraries webrtc unix lwt lwt.unix))

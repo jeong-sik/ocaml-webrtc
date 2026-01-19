@@ -1,246 +1,217 @@
-(** Example: DTLS Echo Server/Client
+(** DTLS Echo Server/Client Example
 
-    This example demonstrates DTLS handshake and encrypted communication
-    between a client and server in-process (simulated network).
+    RFC 6347 - Datagram Transport Layer Security Version 1.2
 
-    The example shows:
-    - DTLS client/server handshake
-    - Cookie exchange for DoS protection
-    - Encrypted data transfer
-    - Key export for SRTP (optional)
+    This example demonstrates:
+    - Creating DTLS server and client
+    - DTLS handshake with cookie validation
+    - Encrypted data exchange
+    - Effect-based I/O abstraction
 
     Usage:
-      dune exec examples/dtls_echo.exe
+      Server: dune exec ./examples/dtls_echo.exe -- server 12345
+      Client: dune exec ./examples/dtls_echo.exe -- client 127.0.0.1 12345
+
+    @author Second Brain
+    @since ocaml-webrtc 0.5.0
 *)
 
 open Webrtc
 
-(** Simulated network - messages are exchanged through a queue *)
-let client_to_server = Queue.create ()
-let server_to_client = Queue.create ()
+let run_server port =
+  Printf.printf "╔═══════════════════════════════════════════════════════════════╗\n";
+  Printf.printf "║           DTLS Echo Server (RFC 6347)                        ║\n";
+  Printf.printf "╚═══════════════════════════════════════════════════════════════╝\n\n";
 
-let send_to_server data = Queue.push data client_to_server
-let send_to_client data = Queue.push data server_to_client
-let recv_from_server () =
-  if Queue.is_empty server_to_client then None
-  else Some (Queue.pop server_to_client)
-let recv_from_client () =
-  if Queue.is_empty client_to_server then None
-  else Some (Queue.pop client_to_server)
+  Printf.printf "➤ Starting server on port %d...\n%!" port;
 
-(** Process DTLS records and send responses *)
-let process_server_records records =
-  List.iter (fun r -> send_to_client r) records
+  (* Create UDP socket *)
+  let sock = Unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in
+  Unix.setsockopt sock Unix.SO_REUSEADDR true;
+  Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_any, port));
 
-let process_client_records records =
-  List.iter (fun r -> send_to_server r) records
+  Printf.printf "➤ Waiting for DTLS ClientHello...\n%!";
 
-(** Custom I/O ops for the example *)
-let make_io_ops () =
-  {
-    Dtls.send = (fun _ -> 0);  (* We handle record sending manually *)
+  (* Create DTLS server context *)
+  let dtls = Dtls.create Dtls.default_server_config in
+
+  (* Receive buffer *)
+  let buf = Bytes.create 65536 in
+
+  (* Simple I/O ops for testing *)
+  let client_addr = ref ("0.0.0.0", 0) in
+  let ops : Dtls.io_ops = {
+    send = (fun data ->
+      let (ip, p) = !client_addr in
+      let addr = Unix.ADDR_INET (Unix.inet_addr_of_string ip, p) in
+      Unix.sendto sock data 0 (Bytes.length data) [] addr
+    );
     recv = (fun _ -> Bytes.empty);
     now = Unix.gettimeofday;
     random = (fun n ->
-      (* Use Mirage_crypto_rng for secure random *)
-      Bytes.of_string (Mirage_crypto_rng.generate n)
+      let b = Bytes.create n in
+      for i = 0 to n - 1 do
+        Bytes.set_uint8 b i (Random.int 256)
+      done;
+      b
     );
     set_timer = (fun _ -> ());
     cancel_timer = (fun () -> ());
-  }
+  } in
 
-(** Run DTLS handshake between client and server *)
-let run_handshake () =
-  Printf.printf "=== DTLS Echo Example ===\n\n";
+  (* Main loop *)
+  let rec loop () =
+    let (len, src) = Unix.recvfrom sock buf 0 (Bytes.length buf) [] in
+    let data = Bytes.sub buf 0 len in
+    let from_addr = match src with
+      | Unix.ADDR_INET (addr, p) -> (Unix.string_of_inet_addr addr, p)
+      | _ -> ("0.0.0.0", 0)
+    in
+    client_addr := from_addr;
 
-  let io_ops = make_io_ops () in
+    Printf.printf "➤ Received %d bytes from %s:%d\n%!" len (fst from_addr) (snd from_addr);
 
-  (* Create client and server *)
-  let client = Dtls.create Dtls.default_client_config in
-  let server = Dtls.create Dtls.default_server_config in
+    Dtls.run_with_io ~ops (fun () ->
+      match Dtls.handle_record_as_server dtls data ~client_addr:from_addr with
+      | Ok (responses, app_data) ->
+        (* Send any response records *)
+        List.iter (fun r ->
+          let _ = ops.send r in ()
+        ) responses;
 
-  Printf.printf "1. Client sends ClientHello...\n";
-
-  (* Client: Start handshake - sends ClientHello *)
-  Dtls.run_with_io ~ops:io_ops (fun () ->
-    match Dtls.start_handshake client with
-    | Ok records ->
-      Printf.printf "   Sent %d record(s)\n" (List.length records);
-      process_client_records records
-    | Error e ->
-      Printf.eprintf "   Error: %s\n" e;
-      exit 1
-  );
-
-  Printf.printf "2. Server processes ClientHello...\n";
-
-  (* Server: Process ClientHello, send HelloVerifyRequest with cookie *)
-  Dtls.run_with_io ~ops:io_ops (fun () ->
-    match recv_from_client () with
-    | Some data ->
-      let client_addr = ("127.0.0.1", 5000) in
-      begin match Dtls.handle_record_as_server server data ~client_addr with
-      | Ok (records, _app_data) ->
-        Printf.printf "   Server state: %s\n" (Format.asprintf "%a" Dtls.pp_state (Dtls.get_state server));
-        Printf.printf "   Sent %d record(s) (HelloVerifyRequest)\n" (List.length records);
-        process_server_records records
-      | Error e ->
-        Printf.eprintf "   Error: %s\n" e;
-        exit 1
-      end
-    | None ->
-      Printf.eprintf "   No data from client!\n";
-      exit 1
-  );
-
-  Printf.printf "3. Client processes HelloVerifyRequest...\n";
-
-  (* Client: Process HelloVerifyRequest, resend ClientHello with cookie *)
-  Dtls.run_with_io ~ops:io_ops (fun () ->
-    match recv_from_server () with
-    | Some data ->
-      begin match Dtls.handle_record client data with
-      | Ok (records, _app_data) ->
-        Printf.printf "   Client state: %s\n" (Format.asprintf "%a" Dtls.pp_state (Dtls.get_state client));
-        Printf.printf "   Sent %d record(s) (ClientHello with cookie)\n" (List.length records);
-        process_client_records records
-      | Error e ->
-        Printf.eprintf "   Error: %s\n" e;
-        exit 1
-      end
-    | None ->
-      Printf.eprintf "   No data from server!\n";
-      exit 1
-  );
-
-  Printf.printf "4. Server processes ClientHello with cookie...\n";
-
-  (* Server: Process ClientHello with cookie, send server flight *)
-  Dtls.run_with_io ~ops:io_ops (fun () ->
-    match recv_from_client () with
-    | Some data ->
-      let client_addr = ("127.0.0.1", 5000) in
-      begin match Dtls.handle_record_as_server server data ~client_addr with
-      | Ok (records, _app_data) ->
-        Printf.printf "   Server state: %s\n" (Format.asprintf "%a" Dtls.pp_state (Dtls.get_state server));
-        Printf.printf "   Sent %d record(s) (ServerHello...ServerHelloDone)\n" (List.length records);
-        process_server_records records
-      | Error e ->
-        Printf.eprintf "   Error: %s\n" e;
-        exit 1
-      end
-    | None ->
-      Printf.eprintf "   No data from client!\n";
-      exit 1
-  );
-
-  (* Continue handshake - process remaining messages *)
-  let rec process_remaining iterations =
-    if iterations > 10 then begin
-      Printf.eprintf "Too many iterations!\n";
-      exit 1
-    end;
-
-    let client_done = Dtls.is_established client in
-    let server_done = Dtls.is_established server in
-
-    if client_done && server_done then
-      Printf.printf "\n✅ Handshake complete!\n\n"
-    else begin
-      (* Client processes server messages *)
-      Dtls.run_with_io ~ops:io_ops (fun () ->
-        match recv_from_server () with
-        | Some data ->
-          begin match Dtls.handle_record client data with
-          | Ok (records, _) ->
-            if records <> [] then begin
-              Printf.printf "   Client -> Server: %d record(s)\n" (List.length records);
-              process_client_records records
-            end
+        (* Echo back any application data *)
+        begin match app_data with
+        | Some plaintext ->
+          Printf.printf "➤ Decrypted: %s\n%!" (Bytes.to_string plaintext);
+          begin match Dtls.encrypt dtls plaintext with
+          | Ok encrypted ->
+            let _ = ops.send encrypted in
+            Printf.printf "➤ Echoed back\n%!"
           | Error e ->
-            Printf.eprintf "   Client error: %s\n" e
+            Printf.eprintf "Encrypt error: %s\n%!" e
           end
-        | None -> ()
-      );
+        | None ->
+          if Dtls.is_established dtls then
+            Printf.printf "➤ DTLS handshake complete!\n%!"
+        end
 
-      (* Server processes client messages *)
-      Dtls.run_with_io ~ops:io_ops (fun () ->
-        match recv_from_client () with
-        | Some data ->
-          let client_addr = ("127.0.0.1", 5000) in
-          begin match Dtls.handle_record_as_server server data ~client_addr with
-          | Ok (records, _) ->
-            if records <> [] then begin
-              Printf.printf "   Server -> Client: %d record(s)\n" (List.length records);
-              process_server_records records
-            end
-          | Error e ->
-            Printf.eprintf "   Server error: %s\n" e
-          end
-        | None -> ()
-      );
+      | Error e ->
+        Printf.eprintf "Error: %s\n%!" e
+    );
 
-      process_remaining (iterations + 1)
-    end
+    loop ()
+  in
+  loop ()
+
+let run_client host port =
+  Printf.printf "╔═══════════════════════════════════════════════════════════════╗\n";
+  Printf.printf "║           DTLS Echo Client (RFC 6347)                        ║\n";
+  Printf.printf "╚═══════════════════════════════════════════════════════════════╝\n\n";
+
+  Printf.printf "➤ Connecting to %s:%d...\n%!" host port;
+
+  (* Create UDP socket *)
+  let sock = Unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in
+  Unix.setsockopt_float sock Unix.SO_RCVTIMEO 5.0;
+  let server_addr =
+    let host_entry = Unix.gethostbyname host in
+    Unix.ADDR_INET (host_entry.Unix.h_addr_list.(0), port)
   in
 
-  Printf.printf "5. Completing handshake...\n";
-  process_remaining 0;
+  (* Create DTLS client context *)
+  let dtls = Dtls.create Dtls.default_client_config in
 
-  (* Show negotiated cipher suite *)
-  begin match Dtls.get_cipher_suite client with
-  | Some cs ->
-    Printf.printf "Cipher suite: %s\n"
-      (match cs with
-       | Dtls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 -> "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
-       | Dtls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 -> "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
-       | Dtls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 -> "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
-       | Dtls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 -> "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384")
-  | None ->
-    Printf.printf "No cipher suite negotiated\n"
-  end;
+  (* I/O ops *)
+  let buf = Bytes.create 65536 in
+  let ops : Dtls.io_ops = {
+    send = (fun data ->
+      Unix.sendto sock data 0 (Bytes.length data) [] server_addr
+    );
+    recv = (fun _ ->
+      let (len, _) = Unix.recvfrom sock buf 0 (Bytes.length buf) [] in
+      Bytes.sub buf 0 len
+    );
+    now = Unix.gettimeofday;
+    random = (fun n ->
+      let b = Bytes.create n in
+      for i = 0 to n - 1 do
+        Bytes.set_uint8 b i (Random.int 256)
+      done;
+      b
+    );
+    set_timer = (fun _ -> ());
+    cancel_timer = (fun () -> ());
+  } in
 
-  (* Test encrypted data transfer *)
-  Printf.printf "\n=== Testing Encrypted Echo ===\n\n";
+  Dtls.run_with_io ~ops (fun () ->
+    (* Start handshake *)
+    Printf.printf "➤ Starting DTLS handshake...\n%!";
+    match Dtls.start_handshake dtls with
+    | Ok records ->
+      List.iter (fun r ->
+        let _ = ops.send r in ()
+      ) records;
 
-  let test_message = Bytes.of_string "Hello, DTLS World!" in
-  Printf.printf "Client sends: %s\n" (Bytes.to_string test_message);
-
-  (* Client encrypts and sends *)
-  begin match Dtls.encrypt client test_message with
-  | Ok encrypted ->
-    Printf.printf "Encrypted: %d bytes\n" (Bytes.length encrypted);
-
-    (* Server decrypts *)
-    begin match Dtls.decrypt server encrypted with
-    | Ok decrypted ->
-      Printf.printf "Server received: %s\n" (Bytes.to_string decrypted);
-
-      (* Server echoes back *)
-      begin match Dtls.encrypt server decrypted with
-      | Ok echo_encrypted ->
-        Printf.printf "Server echoes: %d encrypted bytes\n" (Bytes.length echo_encrypted);
-
-        (* Client receives echo *)
-        begin match Dtls.decrypt client echo_encrypted with
-        | Ok echo_decrypted ->
-          Printf.printf "Client received echo: %s\n\n" (Bytes.to_string echo_decrypted);
-
-          if Bytes.equal test_message echo_decrypted then
-            Printf.printf "✅ Echo test PASSED!\n"
-          else
-            Printf.printf "❌ Echo test FAILED - data mismatch!\n"
-
-        | Error e -> Printf.eprintf "Client decrypt error: %s\n" e
+      (* Process handshake *)
+      let rec handshake_loop () =
+        if Dtls.is_established dtls then
+          Printf.printf "➤ DTLS handshake complete!\n%!"
+        else begin
+          let response = ops.recv 0 in
+          Printf.printf "➤ Received %d bytes\n%!" (Bytes.length response);
+          match Dtls.handle_record dtls response with
+          | Ok (responses, _) ->
+            List.iter (fun r ->
+              let _ = ops.send r in ()
+            ) responses;
+            handshake_loop ()
+          | Error e ->
+            Printf.eprintf "Handshake error: %s\n%!" e
         end
-      | Error e -> Printf.eprintf "Server encrypt error: %s\n" e
+      in
+      handshake_loop ();
+
+      (* Send test message *)
+      if Dtls.is_established dtls then begin
+        let test_msg = Bytes.of_string "Hello, DTLS World!" in
+        Printf.printf "➤ Sending: %s\n%!" (Bytes.to_string test_msg);
+        match Dtls.encrypt dtls test_msg with
+        | Ok encrypted ->
+          let _ = ops.send encrypted in
+          (* Wait for echo *)
+          let reply = ops.recv 0 in
+          begin match Dtls.decrypt dtls reply with
+          | Ok decrypted ->
+            Printf.printf "➤ Received echo: %s\n%!" (Bytes.to_string decrypted)
+          | Error e ->
+            Printf.eprintf "Decrypt error: %s\n%!" e
+          end
+        | Error e ->
+          Printf.eprintf "Encrypt error: %s\n%!" e
       end
-    | Error e -> Printf.eprintf "Server decrypt error: %s\n" e
-    end
-  | Error e -> Printf.eprintf "Client encrypt error: %s\n" e
-  end
+
+    | Error e ->
+      Printf.eprintf "Handshake start error: %s\n%!" e
+  );
+
+  Unix.close sock
 
 let () =
-  (* Initialize RNG *)
-  Mirage_crypto_rng_unix.use_default ();
-  run_handshake ()
+  if Array.length Sys.argv < 2 then begin
+    Printf.printf "Usage:\n";
+    Printf.printf "  Server: %s server <port>\n" Sys.argv.(0);
+    Printf.printf "  Client: %s client <host> <port>\n" Sys.argv.(0);
+    exit 1
+  end;
+
+  match Sys.argv.(1) with
+  | "server" ->
+    let port = if Array.length Sys.argv > 2 then int_of_string Sys.argv.(2) else 12345 in
+    run_server port
+  | "client" ->
+    let host = if Array.length Sys.argv > 2 then Sys.argv.(2) else "127.0.0.1" in
+    let port = if Array.length Sys.argv > 3 then int_of_string Sys.argv.(3) else 12345 in
+    run_client host port
+  | _ ->
+    Printf.eprintf "Unknown mode: %s\n" Sys.argv.(1);
+    exit 1

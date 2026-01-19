@@ -702,7 +702,89 @@ let gather_srflx_candidate agent host_candidate stun_server =
       } in
       Lwt.return_some srflx_candidate
 
-(** Gather all candidates including STUN server reflexive candidates.
+(** {2 TURN Relay Candidate Gathering - RFC 5766} *)
+
+(** Parse TURN server URL to extract host, port, and credentials.
+    Format: turn:host:port or turn:host or turns:host:port
+    Credentials may be in ice_server configuration. *)
+let parse_turn_url url =
+  (* Remove protocol prefix *)
+  let url, is_tls = if String.length url >= 6 && String.sub url 0 6 = "turns:" then
+    (String.sub url 6 (String.length url - 6), true)
+  else if String.length url >= 5 && String.sub url 0 5 = "turn:" then
+    (String.sub url 5 (String.length url - 5), false)
+  else
+    (url, false)
+  in
+  (* Parse host and port *)
+  match String.split_on_char ':' url with
+  | [host; port_str] ->
+    (match int_of_string_opt port_str with
+     | Some port -> Some (host, port, is_tls)
+     | None -> Some (host, 3478, is_tls))  (* Default TURN port *)
+  | [host] -> Some (host, 3478, is_tls)
+  | _ -> None
+
+(** Create a relay candidate from TURN allocation response.
+    RFC 8445 Section 5.1.1.2: Relay candidates have the lowest priority
+    (type preference = 0) but provide connectivity through NAT/firewall. *)
+let create_relay_candidate ~component ~address ~port ~base_address ~base_port
+    ~turn_server =
+  {
+    foundation = generate_foundation ~candidate_type:Relay
+      ~base_address ~stun_server:turn_server ();
+    component;
+    transport = UDP;
+    priority = calculate_priority ~candidate_type:Relay
+      ~local_pref:65535 ~component;
+    address;
+    port;
+    cand_type = Relay;
+    base_address = Some base_address;
+    base_port = Some base_port;
+    related_address = Some base_address;
+    related_port = Some base_port;
+    extensions = [];
+  }
+
+(** Gather relay candidate from a TURN server.
+    RFC 5766: TURN provides relay addresses for traversing symmetric NATs
+    and firewalls that block UDP hole punching.
+
+    This implementation supports unauthenticated TURN for testing with
+    local TURN servers. For production, authentication should be added.
+
+    @param agent ICE agent
+    @param host_candidate Host candidate to use as base
+    @param turn_server TURN server URL (turn:host:port)
+    @return Relay candidate option Lwt promise *)
+let gather_relay_candidate agent host_candidate turn_server =
+  let open Lwt.Infix in
+  match parse_turn_url turn_server with
+  | None -> Lwt.return_none
+  | Some (turn_host, turn_port, _is_tls) ->
+    let server_addr = Printf.sprintf "%s:%d" turn_host turn_port in
+    (* Use STUN module's TURN Allocate request *)
+    Stun.allocate_request_lwt ~server:server_addr ~timeout:5.0 ()
+    >>= function
+    | Error _e ->
+      (* TURN allocate failed - may need authentication or server unavailable *)
+      Lwt.return_none
+    | Ok result ->
+      let relay_ip = result.Stun.relayed_address.Stun.ip in
+      let relay_port = result.Stun.relayed_address.Stun.port in
+      (* Create relay candidate *)
+      let relay_candidate = create_relay_candidate
+        ~component:host_candidate.component
+        ~address:relay_ip
+        ~port:relay_port
+        ~base_address:host_candidate.address
+        ~base_port:host_candidate.port
+        ~turn_server
+      in
+      Lwt.return_some relay_candidate
+
+(** Gather all candidates including STUN server reflexive and TURN relay candidates.
     This is the full ICE gathering procedure per RFC 8445 Section 5.1.1. *)
 let gather_candidates_full agent =
   let open Lwt.Infix in
@@ -776,6 +858,37 @@ let gather_candidates_full agent =
 
   (* Wait for all STUN requests to complete *)
   Lwt.join srflx_promises >>= fun () ->
+
+  (* Step 3: Gather relay candidates from TURN servers (RFC 5766) *)
+  let turn_urls = List.concat_map (fun server -> server.urls) agent.config.ice_servers in
+  let turn_servers = List.filter (fun url ->
+    (String.length url >= 5 && String.sub url 0 5 = "turn:") ||
+    (String.length url >= 6 && String.sub url 0 6 = "turns:")
+  ) turn_urls in
+
+  (* For each host candidate, try each TURN server *)
+  let relay_promises =
+    List.concat_map (fun host ->
+      List.map (fun turn_server ->
+        gather_relay_candidate agent host turn_server
+        >>= function
+        | None -> Lwt.return_unit
+        | Some relay ->
+          (* Check for duplicate relay address *)
+          let exists = List.exists (fun c ->
+            c.address = relay.address && c.port = relay.port
+          ) agent.local_candidates in
+          if not exists then begin
+            agent.local_candidates <- relay :: agent.local_candidates;
+            notify_local_candidate agent relay
+          end;
+          Lwt.return_unit
+      ) turn_servers
+    ) !host_candidates
+  in
+
+  (* Wait for all TURN requests to complete *)
+  Lwt.join relay_promises >>= fun () ->
 
   (* Signal end of candidates *)
   agent.gathering_state <- Gathering_complete;
