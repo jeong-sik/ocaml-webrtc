@@ -69,6 +69,7 @@ type alert_description =
 (** DTLS connection state *)
 type state =
   | Initial
+  (* Client states *)
   | HelloSent
   | HelloVerifyReceived
   | ServerHelloReceived
@@ -78,6 +79,11 @@ type state =
   | Established
   | Closed
   | Error of string
+  (* Server states *)
+  | HelloVerifySent           (** Server sent HelloVerifyRequest *)
+  | ClientHelloReceived       (** Server received valid ClientHello with cookie *)
+  | ServerFlightSent          (** Server sent ServerHello...ServerHelloDone *)
+  | ClientKeyExchangeReceived (** Server received ClientKeyExchange *)
 
 (** Cipher suite *)
 type cipher_suite =
@@ -120,6 +126,12 @@ val start_handshake : t -> (bytes list, string) result
 (** Process incoming DTLS record.
     Returns outgoing records to send and any decrypted application data. *)
 val handle_record : t -> bytes -> (bytes list * bytes option, string) result
+
+(** Process incoming DTLS record as server with client address.
+    The client_addr is needed for stateless cookie validation (DoS protection).
+    Use this function for server-side processing instead of handle_record. *)
+val handle_record_as_server :
+  t -> bytes -> client_addr:(string * int) -> (bytes list * bytes option, string) result
 
 (** Check if handshake is complete *)
 val is_established : t -> bool
@@ -167,6 +179,32 @@ val generate_cookie : t -> client_hello:bytes -> bytes
 (** Verify client cookie *)
 val verify_cookie : t -> cookie:bytes -> client_hello:bytes -> bool
 
+(** {1 Retransmission (RFC 6347 Section 4.2.4)} *)
+
+(** Store a flight for potential retransmission.
+    Starts the retransmission timer. *)
+val store_flight : t -> bytes list -> unit
+
+(** Clear retransmission state when handshake progresses.
+    Cancels any pending timer. *)
+val clear_retransmit : t -> unit
+
+(** Handle retransmission timer expiry.
+    Returns flight to retransmit, or Error if max retransmits exceeded.
+
+    RFC 6347 Section 4.2.4:
+    "If the timer expires, the implementation retransmits the flight,
+     resets the timer, and doubles the timeout value." *)
+val handle_retransmit_timeout : t -> (bytes list, string) result
+
+(** Check if retransmission is needed based on elapsed time.
+    Useful for polling-based timer implementations. *)
+val check_retransmit_needed : t -> bool
+
+(** Get current retransmission state.
+    Returns (retransmit_count, current_timeout_ms, timer_active). *)
+val get_retransmit_state : t -> int * int * bool
+
 (** {1 I/O Operations (Functional Dependency Injection)} *)
 
 (** I/O operations for DTLS transport.
@@ -179,6 +217,8 @@ type io_ops = {
   recv: int -> bytes;         (** Receive up to N bytes (blocking) *)
   now: unit -> float;         (** Get current timestamp *)
   random: int -> bytes;       (** Generate N cryptographically secure random bytes *)
+  set_timer: int -> unit;     (** Set retransmission timer (ms) *)
+  cancel_timer: unit -> unit; (** Cancel pending retransmission timer *)
 }
 
 (** Default I/O ops using Unix time and Mirage_crypto random.
@@ -193,6 +233,8 @@ type _ Effect.t +=
   | Recv : int -> bytes Effect.t      (** Receive up to N bytes *)
   | Now : float Effect.t              (** Get current time *)
   | Random : int -> bytes Effect.t    (** Generate N random bytes *)
+  | SetTimer : int -> unit Effect.t   (** Set retransmit timer (ms) *)
+  | CancelTimer : unit Effect.t       (** Cancel pending retransmit timer *)
 
 (** Run DTLS code with custom I/O operations.
     This is the primary API - works with any transport implementation.
@@ -206,6 +248,8 @@ type _ Effect.t +=
           Bytes.sub dgram.data 0 (min size (Bytes.length dgram.data)));
         now = Unix.gettimeofday;
         random = (fun n -> Cstruct.to_bytes (Mirage_crypto_rng.generate n));
+        set_timer = (fun ms -> Eio.Time.sleep clock (float ms /. 1000.0));
+        cancel_timer = (fun () -> ());  (* Eio fiber cancellation *)
       } in
       run_with_io ~ops (fun () -> do_handshake conn)
     ]}

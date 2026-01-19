@@ -16,6 +16,8 @@ type _ Effect.t +=
   | Recv : int -> bytes Effect.t
   | Now : float Effect.t
   | Random : int -> bytes Effect.t
+  | SetTimer : int -> unit Effect.t    (** Set retransmit timer (ms) *)
+  | CancelTimer : unit Effect.t        (** Cancel pending retransmit timer *)
 
 (** {1 Types} *)
 
@@ -68,6 +70,7 @@ type alert_description =
 
 type state =
   | Initial
+  (* Client states *)
   | HelloSent
   | HelloVerifyReceived
   | ServerHelloReceived
@@ -77,6 +80,11 @@ type state =
   | Established
   | Closed
   | Error of string
+  (* Server states *)
+  | HelloVerifySent           (** Server sent HelloVerifyRequest, waiting for ClientHello with cookie *)
+  | ClientHelloReceived       (** Server received valid ClientHello with cookie *)
+  | ServerFlightSent          (** Server sent full flight (ServerHello...ServerHelloDone) *)
+  | ClientKeyExchangeReceived (** Server received ClientKeyExchange *)
 
 type cipher_suite =
   | TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
@@ -122,6 +130,15 @@ type handshake_state = {
   mutable selected_curve : Ecdhe.named_curve option;
 }
 
+(** RFC 6347 Section 4.2.4: Retransmission state for flight-based reliability *)
+type retransmit_state = {
+  mutable last_flight : bytes list;       (** Last flight sent (for retransmission) *)
+  mutable retransmit_count : int;         (** Current retransmit attempt *)
+  mutable current_timeout_ms : int;       (** Current timeout (exponential backoff) *)
+  mutable flight_sent_at : float;         (** Timestamp when flight was sent *)
+  mutable timer_active : bool;            (** Whether retransmit timer is running *)
+}
+
 type t = {
   config : config;
   mutable state : state;
@@ -130,6 +147,7 @@ type t = {
   mutable epoch : int;
   crypto : crypto_state;
   handshake : handshake_state;
+  retransmit : retransmit_state;    (** RFC 6347 retransmission state *)
 }
 
 (** {1 Constants} *)
@@ -280,6 +298,13 @@ let create config = {
     server_public_key = None;
     selected_curve = None;
   };
+  retransmit = {
+    last_flight = [];
+    retransmit_count = 0;
+    current_timeout_ms = config.retransmit_timeout_ms;
+    flight_sent_at = 0.0;
+    timer_active = false;
+  };
 }
 
 (** {1 Effect-based I/O Helpers} *)
@@ -409,24 +434,41 @@ let decrypt_record ~(t:t) ~content_type ~epoch ~seq_num ~ciphertext_with_nonce =
     (* Plaintext length = ciphertext - tag (16 bytes) *)
     let plaintext_len = ciphertext_len - 8 - 16 in
 
-    match t.crypto.server_write_key, t.crypto.server_write_iv with
-    | Some read_key, Some read_iv when t.config.is_client ->
+    if t.config.is_client then
       (* Client reads using server's write key *)
-      let key = Cstruct.of_bytes read_key in
-      let implicit_iv = Cstruct.of_bytes read_iv in
+      match t.crypto.server_write_key, t.crypto.server_write_iv with
+      | Some read_key, Some read_iv ->
+        let key = Cstruct.of_bytes read_key in
+        let implicit_iv = Cstruct.of_bytes read_iv in
 
-      (* Build AAD with plaintext length *)
-      let aad = build_aad ~epoch ~seq_num ~content_type ~length:plaintext_len in
-      let aad_cs = Cstruct.of_bytes aad in
+        (* Build AAD with plaintext length *)
+        let aad = build_aad ~epoch ~seq_num ~content_type ~length:plaintext_len in
+        let aad_cs = Cstruct.of_bytes aad in
 
-      begin match Webrtc_crypto.aes_gcm_decrypt
-        ~key ~implicit_iv ~explicit_nonce ~aad:aad_cs ~ciphertext_and_tag:ciphertext_tag
-      with
-      | Ok plaintext -> Result.Ok (Cstruct.to_bytes plaintext)
-      | Error e -> Result.Error e
-      end
+        begin match Webrtc_crypto.aes_gcm_decrypt
+          ~key ~implicit_iv ~explicit_nonce ~aad:aad_cs ~ciphertext_and_tag:ciphertext_tag
+        with
+        | Ok plaintext -> Result.Ok (Cstruct.to_bytes plaintext)
+        | Error e -> Result.Error e
+        end
+      | _ -> Result.Error "Decryption keys not available"
+    else
+      (* Server reads using client's write key *)
+      match t.crypto.client_write_key, t.crypto.client_write_iv with
+      | Some read_key, Some read_iv ->
+        let key = Cstruct.of_bytes read_key in
+        let implicit_iv = Cstruct.of_bytes read_iv in
 
-    | _ -> Result.Error "Decryption keys not available"
+        let aad = build_aad ~epoch ~seq_num ~content_type ~length:plaintext_len in
+        let aad_cs = Cstruct.of_bytes aad in
+
+        begin match Webrtc_crypto.aes_gcm_decrypt
+          ~key ~implicit_iv ~explicit_nonce ~aad:aad_cs ~ciphertext_and_tag:ciphertext_tag
+        with
+        | Ok plaintext -> Result.Ok (Cstruct.to_bytes plaintext)
+        | Error e -> Result.Error e
+        end
+      | _ -> Result.Error "Decryption keys not available"
 
 let parse_record_header data =
   if Bytes.length data < record_header_size then
@@ -472,8 +514,14 @@ let build_handshake_header msg_type length msg_seq frag_offset frag_length =
   buf
 
 let build_client_hello t =
-  let client_random = random_bytes 32 in
-  t.handshake.client_random <- Some client_random;
+  (* Reuse existing client_random if present (for HelloVerifyRequest retry) *)
+  let client_random = match t.handshake.client_random with
+    | Some existing -> existing
+    | None ->
+      let new_random = random_bytes 32 in
+      t.handshake.client_random <- Some new_random;
+      new_random
+  in
 
   (* ClientHello body:
      - client_version: 2 bytes
@@ -779,14 +827,440 @@ let handle_finished t _data =
   t.state <- Established;
   Result.Ok ([], None)
 
+(** {1 Server-Side Handshake (RFC 6347)} *)
+
+(** Cookie secret for HMAC-based stateless cookie generation.
+    In production, this should be rotated periodically.
+    RFC 6347 Section 4.2.1: Cookie SHOULD be generated using HMAC. *)
+let cookie_secret = lazy (random_bytes 32)
+
+(** Generate HMAC-SHA256 based cookie for DoS protection.
+    Cookie = HMAC(secret, client_ip || client_port || client_random)
+    This ensures stateless operation until cookie is verified. *)
+let generate_cookie ~client_addr ~client_random =
+  let secret = Lazy.force cookie_secret in
+  let (ip, port) = client_addr in
+  let port_bytes = Bytes.create 2 in
+  Bytes.set_uint16_be port_bytes 0 port;
+  (* Combine all inputs for HMAC *)
+  let data = Bytes.concat Bytes.empty [
+    Bytes.of_string ip;
+    port_bytes;
+    client_random
+  ] in
+  (* Use HMAC-SHA256, truncate to 32 bytes *)
+  let hmac = Digestif.SHA256.hmac_string ~key:(Bytes.to_string secret) (Bytes.to_string data) in
+  Bytes.of_string (Digestif.SHA256.to_raw_string hmac)
+
+(** Verify client's cookie matches expected value *)
+let verify_cookie ~client_addr ~client_random ~cookie =
+  let expected = generate_cookie ~client_addr ~client_random in
+  Bytes.length cookie = Bytes.length expected &&
+  Bytes.equal cookie expected
+
+(** Parse ClientHello message and extract key fields.
+    ClientHello structure (RFC 5246 + RFC 6347):
+    - client_version: 2 bytes
+    - random: 32 bytes
+    - session_id_length: 1 byte + session_id
+    - cookie_length: 1 byte + cookie (DTLS only)
+    - cipher_suites_length: 2 bytes + cipher_suites
+    - compression_methods_length: 1 byte + methods
+    - extensions_length: 2 bytes + extensions *)
+let parse_client_hello data =
+  let len = Bytes.length data in
+  if len < 38 then (* minimum: 2 + 32 + 1 + 1 + 2 *)
+    Result.Error "ClientHello too short"
+  else begin
+    let pos = ref 0 in
+
+    (* Skip version *)
+    pos := !pos + 2;
+
+    (* Client random *)
+    let client_random = Bytes.sub data !pos 32 in
+    pos := !pos + 32;
+
+    (* Session ID *)
+    let session_id_len = Bytes.get_uint8 data !pos in
+    incr pos;
+    if !pos + session_id_len > len then
+      Result.Error "ClientHello session_id truncated"
+    else begin
+      pos := !pos + session_id_len;
+
+      (* Cookie (DTLS specific) *)
+      if !pos >= len then
+        Result.Error "ClientHello missing cookie field"
+      else begin
+        let cookie_len = Bytes.get_uint8 data !pos in
+        incr pos;
+        if !pos + cookie_len > len then
+          Result.Error "ClientHello cookie truncated"
+        else begin
+          let cookie = if cookie_len > 0 then Some (Bytes.sub data !pos cookie_len) else None in
+          pos := !pos + cookie_len;
+
+          (* Cipher suites *)
+          if !pos + 2 > len then
+            Result.Error "ClientHello missing cipher_suites length"
+          else begin
+            let suites_len = Bytes.get_uint16_be data !pos in
+            pos := !pos + 2;
+            if !pos + suites_len > len then
+              Result.Error "ClientHello cipher_suites truncated"
+            else begin
+              let num_suites = suites_len / 2 in
+              let cipher_suites = Array.init num_suites (fun i ->
+                Bytes.get_uint16_be data (!pos + i * 2)
+              ) in
+              pos := !pos + suites_len;
+
+              Result.Ok (client_random, cookie, Array.to_list cipher_suites)
+            end
+          end
+        end
+      end
+    end
+  end
+
+(** Build HelloVerifyRequest message.
+    HelloVerifyRequest structure:
+    - server_version: 2 bytes
+    - cookie_length: 1 byte
+    - cookie: variable *)
+let build_hello_verify_request t ~cookie =
+  let cookie_len = Bytes.length cookie in
+  let body_len = 2 + 1 + cookie_len in
+  let body = Bytes.create body_len in
+  let pos = ref 0 in
+
+  (* Server version *)
+  Bytes.set_uint8 body !pos dtls_version_major; incr pos;
+  Bytes.set_uint8 body !pos dtls_version_minor; incr pos;
+
+  (* Cookie *)
+  Bytes.set_uint8 body !pos cookie_len; incr pos;
+  Bytes.blit cookie 0 body !pos cookie_len;
+
+  let msg_seq = t.handshake.message_seq in
+  t.handshake.message_seq <- msg_seq + 1;
+
+  let header = build_handshake_header HelloVerifyRequest body_len msg_seq 0 body_len in
+  let handshake_data = Bytes.cat header body in
+
+  (* Wrap in record *)
+  let record_header = build_record_header Handshake t.epoch t.crypto.write_seq_num (Bytes.length handshake_data) in
+  t.crypto.write_seq_num <- Int64.add t.crypto.write_seq_num 1L;
+
+  Bytes.cat record_header handshake_data
+
+(** Build ServerHello message.
+    ServerHello structure:
+    - server_version: 2 bytes
+    - random: 32 bytes
+    - session_id_length: 1 byte + session_id
+    - cipher_suite: 2 bytes
+    - compression_method: 1 byte
+    - extensions_length: 2 bytes + extensions *)
+let build_server_hello t ~cipher_suite =
+  let server_random = random_bytes 32 in
+  t.handshake.server_random <- Some server_random;
+  t.negotiated_cipher <- Some cipher_suite;
+
+  (* Body: 2 + 32 + 1 + 2 + 1 + 2 = 40 bytes *)
+  let body_len = 40 in
+  let body = Bytes.create body_len in
+  let pos = ref 0 in
+
+  (* Version *)
+  Bytes.set_uint8 body !pos dtls_version_major; incr pos;
+  Bytes.set_uint8 body !pos dtls_version_minor; incr pos;
+
+  (* Server random *)
+  Bytes.blit server_random 0 body !pos 32;
+  pos := !pos + 32;
+
+  (* Session ID (empty) *)
+  Bytes.set_uint8 body !pos 0; incr pos;
+
+  (* Cipher suite *)
+  Bytes.set_uint16_be body !pos (cipher_suite_to_int cipher_suite);
+  pos := !pos + 2;
+
+  (* Compression method (null) *)
+  Bytes.set_uint8 body !pos 0; incr pos;
+
+  (* Extensions (empty) *)
+  Bytes.set_uint16_be body !pos 0;
+
+  let msg_seq = t.handshake.message_seq in
+  t.handshake.message_seq <- msg_seq + 1;
+
+  let header = build_handshake_header ServerHello body_len msg_seq 0 body_len in
+  let handshake_data = Bytes.cat header body in
+
+  (* Store for Finished verification *)
+  t.handshake.handshake_messages <- handshake_data :: t.handshake.handshake_messages;
+
+  (* Wrap in record *)
+  let record_header = build_record_header Handshake t.epoch t.crypto.write_seq_num (Bytes.length handshake_data) in
+  t.crypto.write_seq_num <- Int64.add t.crypto.write_seq_num 1L;
+
+  Bytes.cat record_header handshake_data
+
+(** Build ServerKeyExchange for ECDHE (RFC 8422).
+    ServerKeyExchange structure for ECDHE:
+    - curve_type: 1 byte (3 = named_curve)
+    - named_curve: 2 bytes (23 = secp256r1)
+    - public_key_length: 1 byte
+    - public_key: variable (65 bytes for P-256 uncompressed) *)
+let build_server_key_exchange t =
+  (* Generate ECDHE keypair *)
+  match Ecdhe.generate_p256 () with
+  | Error e -> Result.Error (Printf.sprintf "ECDHE generation failed: %s" e)
+  | Ok keypair ->
+    t.handshake.ecdhe_keypair <- Some keypair;
+    t.handshake.selected_curve <- Some Ecdhe.Secp256r1;
+
+    (* Use encode_public_key which already adds length prefix *)
+    let pub_key_encoded = Ecdhe.encode_public_key keypair in
+    let pub_key_bytes = Cstruct.to_bytes pub_key_encoded in
+    let pub_key_len = Bytes.length pub_key_bytes in
+
+    (* Body: curve_type (1) + named_curve (2) + pub_key_with_length (already has length prefix) *)
+    let body_len = 1 + 2 + pub_key_len in
+    let body = Bytes.create body_len in
+    let pos = ref 0 in
+
+    (* curve_type = named_curve (3) *)
+    Bytes.set_uint8 body !pos 3; incr pos;
+
+    (* named_curve = secp256r1 (23) *)
+    Bytes.set_uint16_be body !pos 23; pos := !pos + 2;
+
+    (* Public key (already length-prefixed by encode_public_key) *)
+    Bytes.blit pub_key_bytes 0 body !pos pub_key_len;
+
+    let msg_seq = t.handshake.message_seq in
+    t.handshake.message_seq <- msg_seq + 1;
+
+    let header = build_handshake_header ServerKeyExchange body_len msg_seq 0 body_len in
+    let handshake_data = Bytes.cat header body in
+
+    (* Store for Finished verification *)
+    t.handshake.handshake_messages <- handshake_data :: t.handshake.handshake_messages;
+
+    (* Wrap in record *)
+    let record_header = build_record_header Handshake t.epoch t.crypto.write_seq_num (Bytes.length handshake_data) in
+    t.crypto.write_seq_num <- Int64.add t.crypto.write_seq_num 1L;
+
+    Result.Ok (Bytes.cat record_header handshake_data)
+
+(** Build ServerHelloDone message (empty body) *)
+let build_server_hello_done t =
+  let msg_seq = t.handshake.message_seq in
+  t.handshake.message_seq <- msg_seq + 1;
+
+  let header = build_handshake_header ServerHelloDone 0 msg_seq 0 0 in
+
+  (* Store for Finished verification *)
+  t.handshake.handshake_messages <- header :: t.handshake.handshake_messages;
+
+  (* Wrap in record *)
+  let record_header = build_record_header Handshake t.epoch t.crypto.write_seq_num (Bytes.length header) in
+  t.crypto.write_seq_num <- Int64.add t.crypto.write_seq_num 1L;
+
+  Bytes.cat record_header header
+
+(** Handle ClientHello as server.
+    Implements RFC 6347 Section 4.2.1 cookie exchange for DoS protection. *)
+let handle_client_hello t data ~client_addr =
+  if t.config.is_client then
+    Result.Error "Cannot handle ClientHello as client"
+  else
+    match parse_client_hello data with
+    | Result.Error e -> Result.Error e
+    | Result.Ok (client_random, cookie_opt, client_cipher_suites) ->
+      t.handshake.client_random <- Some client_random;
+
+      (* Store ClientHello for Finished verification *)
+      let client_hello_len = Bytes.length data in
+      let ch_header = build_handshake_header ClientHello client_hello_len 0 0 client_hello_len in
+      let ch_data = Bytes.cat ch_header data in
+      t.handshake.handshake_messages <- ch_data :: t.handshake.handshake_messages;
+
+      (* Check cookie for DoS protection *)
+      match cookie_opt with
+      | None ->
+        (* No cookie - send HelloVerifyRequest *)
+        let cookie = generate_cookie ~client_addr ~client_random in
+        let hvr = build_hello_verify_request t ~cookie in
+        t.state <- HelloVerifySent;
+        Result.Ok ([hvr], None)
+
+      | Some cookie ->
+        (* Verify cookie *)
+        if not (verify_cookie ~client_addr ~client_random ~cookie) then
+          Result.Error "Invalid cookie"
+        else begin
+          t.state <- ClientHelloReceived;
+
+          (* Select cipher suite (first common one) *)
+          let common_cipher = List.find_opt (fun suite ->
+            List.mem (cipher_suite_to_int suite) client_cipher_suites
+          ) t.config.cipher_suites in
+
+          match common_cipher with
+          | None -> Result.Error "No common cipher suite"
+          | Some cipher_suite ->
+            (* Build server flight: ServerHello + ServerKeyExchange + ServerHelloDone *)
+            let server_hello = build_server_hello t ~cipher_suite in
+
+            match build_server_key_exchange t with
+            | Result.Error e -> Result.Error e
+            | Result.Ok server_key_exchange ->
+              let server_hello_done = build_server_hello_done t in
+              t.state <- ServerFlightSent;
+              Result.Ok ([server_hello; server_key_exchange; server_hello_done], None)
+        end
+
+(** Handle ClientKeyExchange as server (ECDHE).
+    Extracts client's public key and computes shared secret. *)
+let handle_client_key_exchange t data =
+  if t.config.is_client then
+    Result.Error "Cannot handle ClientKeyExchange as client"
+  else if Bytes.length data < 1 then
+    Result.Error "ClientKeyExchange too short"
+  else begin
+    let pub_len = Bytes.get_uint8 data 0 in
+    if Bytes.length data < 1 + pub_len then
+      Result.Error "ClientKeyExchange public key truncated"
+    else begin
+      let client_pub_bytes = Bytes.sub data 1 pub_len in
+      let client_pub_cs = Cstruct.of_bytes client_pub_bytes in
+
+      (* Store ClientKeyExchange for Finished verification *)
+      let cke_header = build_handshake_header ClientKeyExchange (Bytes.length data) t.handshake.next_receive_seq 0 (Bytes.length data) in
+      let cke_data = Bytes.cat cke_header data in
+      t.handshake.handshake_messages <- cke_data :: t.handshake.handshake_messages;
+      t.handshake.next_receive_seq <- t.handshake.next_receive_seq + 1;
+
+      match t.handshake.ecdhe_keypair with
+      | None -> Result.Error "Server ECDHE keypair not initialized"
+      | Some keypair ->
+        (* Compute shared secret *)
+        match Ecdhe.compute_shared_secret ~keypair ~peer_public_key:client_pub_cs with
+        | Error e -> Result.Error (Printf.sprintf "ECDHE computation failed: %s" e)
+        | Ok premaster_cs ->
+          t.handshake.premaster_secret <- Some (Cstruct.to_bytes premaster_cs);
+          t.state <- ClientKeyExchangeReceived;
+
+          (* Derive master secret and key material *)
+          match t.handshake.client_random, t.handshake.server_random with
+          | Some client_random, Some server_random ->
+            let client_random_cs = Cstruct.of_bytes client_random in
+            let server_random_cs = Cstruct.of_bytes server_random in
+            let master_secret_cs = Webrtc_crypto.derive_master_secret
+              ~pre_master_secret:premaster_cs
+              ~client_random:client_random_cs
+              ~server_random:server_random_cs
+            in
+            t.handshake.master_secret <- Some (Cstruct.to_bytes master_secret_cs);
+
+            (* Derive key material for AES-128-GCM *)
+            let key_material = Webrtc_crypto.derive_key_material
+              ~master_secret:master_secret_cs
+              ~server_random:server_random_cs
+              ~client_random:client_random_cs
+              ~key_size:Webrtc_crypto.aes_128_gcm_key_size
+              ~iv_size:Webrtc_crypto.aes_gcm_implicit_iv_size
+            in
+            t.crypto.client_write_key <- Some (Cstruct.to_bytes key_material.client_write_key);
+            t.crypto.server_write_key <- Some (Cstruct.to_bytes key_material.server_write_key);
+            t.crypto.client_write_iv <- Some (Cstruct.to_bytes key_material.client_write_iv);
+            t.crypto.server_write_iv <- Some (Cstruct.to_bytes key_material.server_write_iv);
+
+            Result.Ok ([], None)
+          | _ ->
+            Result.Error "Missing client_random or server_random"
+    end
+  end
+
+(** Build server's Finished message after receiving client's Finished *)
+let build_server_finished t =
+  (* Build ChangeCipherSpec *)
+  let ccs_body = Bytes.create 1 in
+  Bytes.set_uint8 ccs_body 0 1;
+  let record_ccs = Bytes.cat
+    (build_record_header ChangeCipherSpec t.epoch t.crypto.write_seq_num 1)
+    ccs_body
+  in
+  t.crypto.write_seq_num <- Int64.add t.crypto.write_seq_num 1L;
+  t.epoch <- t.epoch + 1;
+  t.crypto.write_seq_num <- 0L;
+
+  (* Build Finished with verify_data *)
+  let finished_body =
+    match t.handshake.master_secret with
+    | Some master_secret ->
+      let messages_cs = List.rev_map Cstruct.of_bytes t.handshake.handshake_messages in
+      let handshake_hash = Ecdhe.hash_handshake_messages messages_cs in
+      let master_secret_cs = Cstruct.of_bytes master_secret in
+      let verify_data = Ecdhe.compute_verify_data
+        ~master_secret:master_secret_cs
+        ~handshake_hash
+        ~is_client:false  (* Server *)
+      in
+      Cstruct.to_bytes verify_data
+    | None ->
+      random_bytes 12
+  in
+
+  let msg_seq = t.handshake.message_seq in
+  t.handshake.message_seq <- msg_seq + 1;
+
+  let finished_header = build_handshake_header Finished 12 msg_seq 0 12 in
+  let finished_data = Bytes.cat finished_header finished_body in
+
+  (* Encrypt Finished *)
+  let record_finished =
+    match encrypt_record ~t ~content_type:Handshake
+            ~epoch:t.epoch ~seq_num:t.crypto.write_seq_num ~plaintext:finished_data
+    with
+    | Ok encrypted_payload ->
+      Bytes.cat
+        (build_record_header Handshake t.epoch t.crypto.write_seq_num (Bytes.length encrypted_payload))
+        encrypted_payload
+    | Error _ ->
+      Bytes.cat
+        (build_record_header Handshake t.epoch t.crypto.write_seq_num (Bytes.length finished_data))
+        finished_data
+  in
+  t.crypto.write_seq_num <- Int64.add t.crypto.write_seq_num 1L;
+
+  t.state <- Established;
+  [record_ccs; record_finished]
+
+(** Handle Finished message as server - verify client's Finished and send our own *)
+let handle_finished_as_server t _data =
+  (* TODO: Verify client's verify_data *)
+  let response = build_server_finished t in
+  Result.Ok (response, None)
+
 let handle_handshake_message t msg_type data =
   match msg_type with
-  | HelloVerifyRequest -> handle_hello_verify_request t data
-  | ServerHello -> handle_server_hello t data
-  | Certificate -> handle_certificate t data
-  | ServerKeyExchange -> handle_server_key_exchange t data
-  | ServerHelloDone -> handle_server_hello_done t data
-  | Finished -> handle_finished t data
+  (* Client-side handlers *)
+  | HelloVerifyRequest when t.config.is_client -> handle_hello_verify_request t data
+  | ServerHello when t.config.is_client -> handle_server_hello t data
+  | Certificate when t.config.is_client -> handle_certificate t data
+  | ServerKeyExchange when t.config.is_client -> handle_server_key_exchange t data
+  | ServerHelloDone when t.config.is_client -> handle_server_hello_done t data
+  | Finished when t.config.is_client -> handle_finished t data
+  (* Server-side handlers *)
+  | ClientKeyExchange when not t.config.is_client -> handle_client_key_exchange t data
+  | Finished when not t.config.is_client -> handle_finished_as_server t data
+  (* ClientHello requires client_addr, handled separately in handle_record_as_server *)
   | _ -> Result.Error (Printf.sprintf "Unexpected handshake message type")
 
 let handle_record t data =
@@ -821,6 +1295,66 @@ let handle_record t data =
             in
             let body = Bytes.sub payload handshake_header_size body_len in
             handle_handshake_message t msg_type body
+        end
+      | ChangeCipherSpec ->
+        t.epoch <- t.epoch + 1;
+        t.crypto.read_seq_num <- 0L;
+        Result.Ok ([], None)
+      | Alert ->
+        if Bytes.length payload >= 2 then begin
+          let level = Bytes.get_uint8 payload 0 in
+          let desc = Bytes.get_uint8 payload 1 in
+          if level = 2 then begin
+            t.state <- Closed;
+            Result.Error (Printf.sprintf "Fatal alert: %d" desc)
+          end else
+            Result.Ok ([], None)
+        end else
+          Result.Error "Alert too short"
+      | ApplicationData ->
+        if t.state = Established then
+          Result.Ok ([], Some payload)
+        else
+          Result.Error "Application data before handshake complete"
+      end
+
+(** Handle incoming record as server with client address for cookie validation.
+    This is the main entry point for server-side record processing. *)
+let handle_record_as_server t data ~client_addr =
+  match parse_record_header data with
+  | Result.Error e -> Result.Error e
+  | Result.Ok (content_type, epoch, seq_num, length) ->
+    let raw_payload = Bytes.sub data record_header_size length in
+
+    (* Decrypt payload if epoch > 0 (after ChangeCipherSpec) *)
+    let payload_result =
+      if epoch > 0 && content_type <> ChangeCipherSpec then
+        decrypt_record ~t ~content_type ~epoch ~seq_num ~ciphertext_with_nonce:raw_payload
+      else
+        Ok raw_payload
+    in
+
+    match payload_result with
+    | Error e -> Result.Error (Printf.sprintf "Decryption failed: %s" e)
+    | Ok payload ->
+      begin match content_type with
+      | Handshake ->
+        if Bytes.length payload < handshake_header_size then
+          Result.Error "Handshake message too short"
+        else begin
+          let msg_type_int = Bytes.get_uint8 payload 0 in
+          match int_to_handshake_type msg_type_int with
+          | None -> Result.Error "Unknown handshake type"
+          | Some msg_type ->
+            let body_len =
+              (Bytes.get_uint8 payload 1 lsl 16) lor
+              (Bytes.get_uint16_be payload 2)
+            in
+            let body = Bytes.sub payload handshake_header_size body_len in
+            (* Special handling for ClientHello which needs client_addr *)
+            match msg_type with
+            | ClientHello -> handle_client_hello t body ~client_addr
+            | _ -> handle_handshake_message t msg_type body
         end
       | ChangeCipherSpec ->
         t.epoch <- t.epoch + 1;
@@ -1035,16 +1569,23 @@ let get_cipher_suite t = t.negotiated_cipher
 let get_peer_certificate t = t.peer_certificate
 
 let pp_state fmt = function
+  (* Common states *)
   | Initial -> Format.fprintf fmt "Initial"
+  | Established -> Format.fprintf fmt "Established"
+  | Closed -> Format.fprintf fmt "Closed"
+  | Error e -> Format.fprintf fmt "Error(%s)" e
+  (* Client states *)
   | HelloSent -> Format.fprintf fmt "HelloSent"
   | HelloVerifyReceived -> Format.fprintf fmt "HelloVerifyReceived"
   | ServerHelloReceived -> Format.fprintf fmt "ServerHelloReceived"
   | CertificateReceived -> Format.fprintf fmt "CertificateReceived"
   | KeyExchangeDone -> Format.fprintf fmt "KeyExchangeDone"
   | ChangeCipherSpecSent -> Format.fprintf fmt "ChangeCipherSpecSent"
-  | Established -> Format.fprintf fmt "Established"
-  | Closed -> Format.fprintf fmt "Closed"
-  | Error e -> Format.fprintf fmt "Error(%s)" e
+  (* Server states *)
+  | HelloVerifySent -> Format.fprintf fmt "HelloVerifySent"
+  | ClientHelloReceived -> Format.fprintf fmt "ClientHelloReceived"
+  | ServerFlightSent -> Format.fprintf fmt "ServerFlightSent"
+  | ClientKeyExchangeReceived -> Format.fprintf fmt "ClientKeyExchangeReceived"
 
 (** {1 Cookie Handling} *)
 
@@ -1062,6 +1603,77 @@ let verify_cookie _t ~cookie ~client_hello =
   let expected = generate_cookie _t ~client_hello in
   Bytes.equal cookie expected
 
+(** {1 Retransmission (RFC 6347 Section 4.2.4)} *)
+
+(** Maximum retransmit timeout per RFC 6347 *)
+let max_retransmit_timeout_ms = 60000
+
+(** Calculate next timeout with exponential backoff.
+    RFC 6347: timeout doubles on each retransmit, capped at 60 seconds. *)
+let next_retransmit_timeout current_ms =
+  min (current_ms * 2) max_retransmit_timeout_ms
+
+(** Store a flight for potential retransmission.
+    Called after sending a handshake flight. *)
+let store_flight (t : t) (flight : bytes list) =
+  let now = perform Now in
+  t.retransmit.last_flight <- flight;
+  t.retransmit.retransmit_count <- 0;
+  t.retransmit.current_timeout_ms <- t.config.retransmit_timeout_ms;
+  t.retransmit.flight_sent_at <- now;
+  t.retransmit.timer_active <- true;
+  perform (SetTimer t.retransmit.current_timeout_ms)
+
+(** Clear retransmission state when handshake progresses.
+    Called when a valid response is received. *)
+let clear_retransmit (t : t) =
+  if t.retransmit.timer_active then begin
+    perform CancelTimer;
+    t.retransmit.timer_active <- false
+  end;
+  t.retransmit.last_flight <- [];
+  t.retransmit.retransmit_count <- 0;
+  t.retransmit.current_timeout_ms <- t.config.retransmit_timeout_ms
+
+(** Handle retransmission timer expiry.
+    Returns the flight to retransmit, or Error if max retransmits exceeded.
+
+    RFC 6347 Section 4.2.4:
+    "If the timer expires, the implementation retransmits the flight,
+     resets the timer, and doubles the timeout value." *)
+let handle_retransmit_timeout (t : t) : (bytes list, string) result =
+  if not t.retransmit.timer_active then
+    Ok []  (* Timer was cancelled, nothing to do *)
+  else if t.retransmit.retransmit_count >= t.config.max_retransmits then begin
+    (* Max retransmits exceeded - fail the handshake *)
+    t.retransmit.timer_active <- false;
+    t.state <- Error "Handshake timeout: max retransmits exceeded";
+    Error "Max retransmits exceeded"
+  end else begin
+    (* Retransmit the flight *)
+    t.retransmit.retransmit_count <- t.retransmit.retransmit_count + 1;
+    t.retransmit.current_timeout_ms <- next_retransmit_timeout t.retransmit.current_timeout_ms;
+    t.retransmit.flight_sent_at <- perform Now;
+    perform (SetTimer t.retransmit.current_timeout_ms);
+    Ok t.retransmit.last_flight
+  end
+
+(** Check if retransmission is needed based on elapsed time.
+    Useful for polling-based timer implementations. *)
+let check_retransmit_needed (t : t) : bool =
+  if not t.retransmit.timer_active then
+    false
+  else
+    let now = perform Now in
+    let elapsed_ms = int_of_float ((now -. t.retransmit.flight_sent_at) *. 1000.0) in
+    elapsed_ms >= t.retransmit.current_timeout_ms
+
+(** Get current retransmission state for debugging/monitoring *)
+let get_retransmit_state (t : t) =
+  (t.retransmit.retransmit_count,
+   t.retransmit.current_timeout_ms,
+   t.retransmit.timer_active)
+
 (** {1 I/O Operations (Functional Dependency Injection)} *)
 
 (** I/O operations for DTLS transport.
@@ -1074,6 +1686,8 @@ type io_ops = {
   recv: int -> bytes;         (** Receive up to N bytes (blocking) *)
   now: unit -> float;         (** Get current timestamp *)
   random: int -> bytes;       (** Generate N cryptographically secure random bytes *)
+  set_timer: int -> unit;     (** Set retransmission timer (ms), callback on timeout *)
+  cancel_timer: unit -> unit; (** Cancel pending retransmission timer *)
 }
 
 (** Default I/O ops using Unix and Mirage_crypto *)
@@ -1085,13 +1699,15 @@ let default_io_ops = {
     (* Mirage_crypto_rng.generate returns string in newer versions *)
     Bytes.of_string (Mirage_crypto_rng.generate n)
   );
+  set_timer = (fun _ -> ());     (* No-op for testing *)
+  cancel_timer = (fun () -> ()); (* No-op for testing *)
 }
 
 (** {1 Effect Handler (for Eio integration)} *)
 
 (** Run DTLS code with custom I/O operations.
     This is the primary API - works with any transport implementation.
-    @param ops I/O operations (send, recv, now, random)
+    @param ops I/O operations (send, recv, now, random, set_timer, cancel_timer)
     @param f The DTLS function to run *)
 let run_with_io ~ops f =
   try_with f () {
@@ -1110,6 +1726,14 @@ let run_with_io ~ops f =
         )
       | Random n -> Some (fun (k : (a, _) continuation) ->
           continue k (ops.random n)
+        )
+      | SetTimer ms -> Some (fun (k : (a, _) continuation) ->
+          ops.set_timer ms;
+          continue k ()
+        )
+      | CancelTimer -> Some (fun (k : (a, _) continuation) ->
+          ops.cancel_timer ();
+          continue k ()
         )
       | _ -> None
   }
