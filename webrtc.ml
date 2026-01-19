@@ -103,8 +103,13 @@ module Ice_eio = Ice_eio  (** Eio-based ICE agent with fibers *)
 module Dtls_eio = Dtls_eio  (** Eio-based DTLS with timer management *)
 module Webrtc_eio = Webrtc_eio  (** Full WebRTC stack with Eio integration *)
 
+(** {1 Functor-based Transport (v0.6.0)} *)
+
+module Transport_intf = Transport_intf  (** Swappable transport interface *)
+module Dtls_functor = Dtls_functor  (** DTLS with functor-based transport *)
+
 (** Library version *)
-let version = "0.4.0"
+let version = "0.6.0"
 
 (** Library name for User-Agent headers *)
 let user_agent = "ocaml-webrtc/" ^ version

@@ -1,6 +1,6 @@
 (lang dune 3.13)
 (name ocaml-webrtc)
-(version 0.1.0)
+(version 0.6.0)
 
 (generate_opam_files true)
 

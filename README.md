@@ -1,6 +1,6 @@
 # ocaml-webrtc
 
-[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](https://github.com/jeong-sik/ocaml-webrtc)
+[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)](https://github.com/jeong-sik/ocaml-webrtc)
 [![OCaml](https://img.shields.io/badge/OCaml-5.x-orange.svg)](https://ocaml.org/)
 [![Status](https://img.shields.io/badge/status-Beta-green.svg)]()
 [![License](https://img.shields.io/badge/license-Private-red.svg)]()
@@ -9,7 +9,7 @@
 
 No C bindings. Suitable for formal verification. Sans-IO architecture.
 
-## v0.5.0 Status
+## v0.6.0 Status
 
 | Component | Status | RFC | Notes |
 |-----------|--------|-----|-------|
