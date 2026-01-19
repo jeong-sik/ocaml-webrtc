@@ -1587,22 +1587,6 @@ let pp_state fmt = function
   | ServerFlightSent -> Format.fprintf fmt "ServerFlightSent"
   | ClientKeyExchangeReceived -> Format.fprintf fmt "ClientKeyExchangeReceived"
 
-(** {1 Cookie Handling} *)
-
-let generate_cookie _t ~client_hello =
-  (* Generate HMAC of client_hello (simplified) *)
-  let hash = Bytes.create 32 in
-  for i = 0 to 31 do
-    let idx = i mod (Bytes.length client_hello) in
-    Bytes.set_uint8 hash i (Bytes.get_uint8 client_hello idx)
-  done;
-  hash
-
-let verify_cookie _t ~cookie ~client_hello =
-  (* Verify cookie matches client_hello *)
-  let expected = generate_cookie _t ~client_hello in
-  Bytes.equal cookie expected
-
 (** {1 Retransmission (RFC 6347 Section 4.2.4)} *)
 
 (** Maximum retransmit timeout per RFC 6347 *)
