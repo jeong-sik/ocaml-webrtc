@@ -1115,6 +1115,9 @@ let binding_request_lwt ~server ?timeout () =
     Lwt_unix.sendto sock request_bytes 0 (Bytes.length request_bytes) [] addr.Unix.ai_addr
     >>= fun _sent ->
 
+    (* Get local address after socket is bound *)
+    let local_addr = Lwt_unix.getsockname sock in
+
     (* Receive response with timeout *)
     let response_buf = Bytes.create 576 in  (* Max STUN message size *)
 
@@ -1162,8 +1165,15 @@ let binding_request_lwt ~server ?timeout () =
         match find_addr response.attributes with
         | None -> Lwt.return (Error "No mapped address in response")
         | Some mapped_address ->
+          (* Extract local address from socket *)
+          let local_address = match local_addr with
+            | Unix.ADDR_INET (ip, p) ->
+              { family = IPv4; port = p; ip = Unix.string_of_inet_addr ip }
+            | Unix.ADDR_UNIX _ ->
+              { family = IPv4; port = 0; ip = "0.0.0.0" }
+          in
           Lwt.return (Ok {
-            local_address = { family = IPv4; port = 0; ip = "0.0.0.0" };  (* TODO: Get actual local *)
+            local_address;
             mapped_address;
             server_software = find_software response.attributes;
             rtt_ms;
