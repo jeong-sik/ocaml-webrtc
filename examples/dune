@@ -15,3 +15,7 @@
 (executable
  (name datachannel)
  (libraries webrtc unix lwt lwt.unix))
+
+(executable
+ (name eio_datachannel)
+ (libraries webrtc eio eio_main eio_posix unix))
