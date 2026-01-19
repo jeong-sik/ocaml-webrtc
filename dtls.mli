@@ -171,13 +171,22 @@ val get_peer_certificate : t -> string option
 (** Pretty-print state *)
 val pp_state : Format.formatter -> state -> unit
 
-(** {1 Cookie Handling (DoS protection)} *)
+(** {1 Cookie Handling (RFC 6347 Section 4.2.1 DoS protection)} *)
 
-(** Generate server cookie for HelloVerifyRequest *)
-val generate_cookie : t -> client_hello:bytes -> bytes
+(** Generate HMAC-SHA256 based cookie for HelloVerifyRequest.
+    Cookie = HMAC(secret, client_ip || client_port || client_random)
+    This is stateless - no connection state needed until cookie verified. *)
+val generate_cookie :
+  client_addr:(string * int) ->
+  client_random:bytes ->
+  bytes
 
-(** Verify client cookie *)
-val verify_cookie : t -> cookie:bytes -> client_hello:bytes -> bool
+(** Verify client cookie matches expected HMAC value *)
+val verify_cookie :
+  client_addr:(string * int) ->
+  client_random:bytes ->
+  cookie:bytes ->
+  bool
 
 (** {1 Retransmission (RFC 6347 Section 4.2.4)} *)
 
