@@ -412,25 +412,129 @@ let discover_local_ip_for_server server_host =
        | _ -> None)
   with _ -> None
 
-(** Get list of usable local IP addresses *)
+(** Parse IPv4 address from ifconfig/ip output line *)
+let extract_ipv4_from_line line =
+  (* Match patterns like "inet 192.168.1.5" or "inet addr:192.168.1.5" *)
+  let ipv4_pattern = Str.regexp {|inet[ \t]+\(addr:\)?\([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\)|} in
+  if Str.string_match ipv4_pattern line 0 then
+    try Some (Str.matched_group 2 line) with _ -> None
+  else
+    None
+
+(** Get local addresses from ifconfig output (macOS/Linux) *)
+let get_addresses_from_ifconfig () =
+  let addresses = ref [] in
+  (try
+    let ic = Unix.open_process_in "ifconfig 2>/dev/null || ip addr 2>/dev/null" in
+    (try
+      while true do
+        let line = input_line ic in
+        match extract_ipv4_from_line line with
+        | Some ip when not (is_loopback ip) && not (is_link_local ip) ->
+          if not (List.mem ip !addresses) then
+            addresses := ip :: !addresses
+        | _ -> ()
+      done
+    with End_of_file -> ());
+    ignore (Unix.close_process_in ic)
+  with _ -> ());
+  !addresses
+
+(** Get addresses from /proc/net/fib_trie (Linux only, Pure OCaml) *)
+let get_addresses_from_proc () =
+  let addresses = ref [] in
+  (try
+    let ic = open_in "/proc/net/fib_trie" in
+    let local_pattern = Str.regexp {|.*|-- \([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\)$|} in
+    let in_local_block = ref false in
+    (try
+      while true do
+        let line = input_line ic in
+        (* Look for LOCAL entries which indicate assigned addresses *)
+        if String.length line > 0 then begin
+          if Str.string_match (Str.regexp {|.*/32 host LOCAL|}) line 0 then
+            in_local_block := true
+          else if !in_local_block && Str.string_match local_pattern line 0 then begin
+            let ip = Str.matched_group 1 line in
+            if not (is_loopback ip) && not (is_link_local ip) &&
+               not (List.mem ip !addresses) then
+              addresses := ip :: !addresses;
+            in_local_block := false
+          end
+          else if String.length line > 0 && line.[0] <> ' ' then
+            in_local_block := false
+        end
+      done
+    with End_of_file -> ());
+    close_in ic
+  with _ -> ());
+  !addresses
+
+(** Discover addresses by connecting to multiple external endpoints.
+    This helps find addresses on different network interfaces. *)
+let discover_addresses_via_routing () =
+  let addresses = ref [] in
+  (* List of well-known public DNS servers in different networks *)
+  let external_targets = [
+    "8.8.8.8";       (* Google DNS *)
+    "1.1.1.1";       (* Cloudflare DNS *)
+    "208.67.222.222"; (* OpenDNS *)
+    "9.9.9.9";       (* Quad9 DNS *)
+  ] in
+  List.iter (fun target ->
+    try
+      let sock = Unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in
+      let addr = Unix.ADDR_INET (Unix.inet_addr_of_string target, 80) in
+      Unix.connect sock addr;
+      let local_addr = Unix.getsockname sock in
+      Unix.close sock;
+      match local_addr with
+      | Unix.ADDR_INET (ip, _) ->
+        let ip_str = Unix.string_of_inet_addr ip in
+        if not (is_loopback ip_str) && not (is_link_local ip_str) &&
+           not (List.mem ip_str !addresses) then
+          addresses := ip_str :: !addresses
+      | _ -> ()
+    with _ -> ()
+  ) external_targets;
+  !addresses
+
+(** Get list of usable local IP addresses.
+    Uses multiple methods for comprehensive interface discovery:
+    1. Routing-based discovery (most reliable for default interface)
+    2. ifconfig/ip addr parsing (finds all configured interfaces)
+    3. /proc/net/fib_trie parsing (Linux-specific, Pure OCaml)
+    4. Hostname resolution (fallback)
+
+    RFC 8445 Section 5.1.1: "The agent gathers candidates from its
+    host candidates (IP addresses attached to its network interfaces)."
+*)
 let get_local_addresses () =
   let addresses = ref [] in
-  (* Method 1: Discover via outbound routing *)
-  (match discover_local_ip () with
-   | Some ip when not (is_loopback ip) && not (is_link_local ip) ->
-     addresses := ip :: !addresses
-   | _ -> ());
-  (* Method 2: Try hostname resolution as fallback *)
+  let add_if_new ip =
+    if not (is_loopback ip) && not (is_link_local ip) &&
+       not (List.mem ip !addresses) then
+      addresses := ip :: !addresses
+  in
+
+  (* Method 1: Routing-based discovery (reliable for primary interface) *)
+  List.iter add_if_new (discover_addresses_via_routing ());
+
+  (* Method 2: ifconfig/ip addr parsing (all interfaces) *)
+  List.iter add_if_new (get_addresses_from_ifconfig ());
+
+  (* Method 3: /proc/net/fib_trie (Linux, no external process) *)
+  List.iter add_if_new (get_addresses_from_proc ());
+
+  (* Method 4: Hostname resolution (fallback) *)
   (try
      let hostname = Unix.gethostname () in
      let host_entry = Unix.gethostbyname hostname in
      Array.iter (fun addr ->
-       let ip = Unix.string_of_inet_addr addr in
-       if not (is_loopback ip) && not (is_link_local ip) &&
-          not (List.mem ip !addresses) then
-         addresses := ip :: !addresses
+       add_if_new (Unix.string_of_inet_addr addr)
      ) host_entry.Unix.h_addr_list
    with _ -> ());
+
   !addresses
 
 (** {2 Candidate Gathering} *)
