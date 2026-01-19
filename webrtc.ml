@@ -54,6 +54,8 @@ module Ice_check = Ice_check  (** RFC 8445 ICE Connectivity Checks (Sans-IO) *)
 module Dtls = Dtls
 module Sctp = Sctp
 module Sdp = Sdp
+module Rtp = Rtp
+module Rtcp = Rtcp
 module Ecdhe = Ecdhe  (** RFC 8422 ECDHE key exchange *)
 module Webrtc_crypto = Webrtc_crypto  (** TLS 1.2 PRF and AES-GCM *)
 
