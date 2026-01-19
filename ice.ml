@@ -127,6 +127,10 @@ type agent = {
   mutable on_candidate_cb: candidate_callback option;
   mutable on_gathering_complete_cb: end_of_candidates_callback option;
   mutable remote_end_of_candidates: bool;
+  (* Consent Freshness - RFC 7675 *)
+  mutable consent_last_received: float;   (** Timestamp of last consent response *)
+  mutable consent_failures: int;          (** Consecutive consent check failures *)
+  mutable consent_expired: bool;          (** True if consent has expired *)
 }
 
 (** {1 Default Configuration} *)
@@ -336,6 +340,10 @@ let create config =
     on_candidate_cb = None;
     on_gathering_complete_cb = None;
     remote_end_of_candidates = false;
+    (* Consent Freshness *)
+    consent_last_received = 0.0;
+    consent_failures = 0;
+    consent_expired = false;
   }
 
 (** Get agent state *)
@@ -1266,7 +1274,128 @@ let restart agent =
   agent.remote_ufrag <- None;
   agent.remote_pwd <- None;
   (* Reset Trickle ICE state but keep callbacks *)
-  agent.remote_end_of_candidates <- false
+  agent.remote_end_of_candidates <- false;
+  (* Reset Consent Freshness *)
+  agent.consent_last_received <- 0.0;
+  agent.consent_failures <- 0;
+  agent.consent_expired <- false
+
+(** {1 Consent Freshness - RFC 7675}
+
+    Consent Freshness ensures that the remote peer is still willing to
+    communicate. Without periodic consent verification, an attacker could
+    hijack the session.
+
+    Per RFC 7675:
+    - Consent SHOULD be refreshed every 5 seconds
+    - Consent expires after 30 seconds without response
+    - Any authenticated STUN response (including binding) refreshes consent
+*)
+
+(** RFC 7675 Section 5.1: Consent refresh interval *)
+let consent_refresh_interval_s = 5.0
+
+(** RFC 7675 Section 5.1: Consent timeout (30 seconds) *)
+let consent_timeout_s = 30.0
+
+(** RFC 7675 Section 5.1: Maximum consecutive failures before expiry *)
+let consent_max_failures = 6
+
+(** Record consent response received *)
+let consent_received agent =
+  let now = Unix.gettimeofday () in
+  agent.consent_last_received <- now;
+  agent.consent_failures <- 0;
+  agent.consent_expired <- false
+
+(** Record consent check failure *)
+let consent_failed agent =
+  agent.consent_failures <- agent.consent_failures + 1;
+  if agent.consent_failures >= consent_max_failures then begin
+    agent.consent_expired <- true;
+    agent.state <- Failed
+  end
+
+(** Check if consent is still valid *)
+let is_consent_valid agent =
+  if agent.consent_expired then false
+  else if agent.consent_last_received = 0.0 then true  (* Not yet established *)
+  else
+    let now = Unix.gettimeofday () in
+    let elapsed = now -. agent.consent_last_received in
+    elapsed < consent_timeout_s
+
+(** Check if consent refresh is needed *)
+let needs_consent_refresh agent =
+  if agent.state <> Connected && agent.state <> Completed then false
+  else if agent.consent_last_received = 0.0 then true
+  else
+    let now = Unix.gettimeofday () in
+    let elapsed = now -. agent.consent_last_received in
+    elapsed >= consent_refresh_interval_s
+
+(** Perform consent refresh check on nominated pair.
+    Returns Lwt promise that resolves when check completes. *)
+let refresh_consent agent =
+  let open Lwt.Infix in
+  match agent.nominated_pair with
+  | None -> Lwt.return (Error "No nominated pair")
+  | Some pair when agent.consent_expired ->
+    Lwt.return (Error "Consent already expired")
+  | Some pair ->
+    let remote_ufrag = Option.value ~default:"" agent.remote_ufrag in
+    let remote_pwd = Option.value ~default:"" agent.remote_pwd in
+
+    (* Create consent check (regular binding request, no USE-CANDIDATE) *)
+    let check = Ice_check.create
+      ~local_addr:(pair.local.address, pair.local.port)
+      ~remote_addr:(pair.remote.address, pair.remote.port)
+      ~local_ufrag:agent.local_ufrag
+      ~local_pwd:agent.local_pwd
+      ~remote_ufrag
+      ~remote_pwd
+      ~priority:pair.local.priority
+      ~is_controlling:(agent.config.role = Controlling)
+      ~tie_breaker:(generate_tie_breaker ())
+      ~use_candidate:false  (* Consent check, not nomination *)
+      ()
+    in
+
+    (* Run check *)
+    let now = Unix.gettimeofday () in
+    let (check, output1) = Ice_check.step check Ice_check.Start_check now in
+    execute_check_output agent output1 >>= fun () ->
+
+    let now = Unix.gettimeofday () in
+    let (check, output2) = Ice_check.step check Ice_check.Start_check now in
+    execute_check_output agent output2 >>= fun () ->
+
+    (* Simulate response wait - in real impl, this waits for actual response *)
+    Lwt_unix.sleep 0.5 >>= fun () ->
+
+    if Ice_check.get_state check = Ice_check.Succeeded then begin
+      consent_received agent;
+      Lwt.return (Ok ())
+    end else begin
+      consent_failed agent;
+      Lwt.return (Error "Consent check failed")
+    end
+
+(** Get consent status for monitoring *)
+let get_consent_status agent =
+  let now = Unix.gettimeofday () in
+  let time_since_last =
+    if agent.consent_last_received = 0.0 then None
+    else Some (now -. agent.consent_last_received)
+  in
+  `Assoc [
+    ("valid", `Bool (is_consent_valid agent));
+    ("expired", `Bool agent.consent_expired);
+    ("failures", `Int agent.consent_failures);
+    ("timeSinceLastMs", match time_since_last with
+      | None -> `Null
+      | Some t -> `Float (t *. 1000.0));
+  ]
 
 (** {1 JSON Status} *)
 
@@ -1281,6 +1410,7 @@ let status_json agent =
     ("hasNominatedPair", `Bool (Option.is_some agent.nominated_pair));
     ("localUfrag", `String agent.local_ufrag);
     ("role", `String (match agent.config.role with Controlling -> "controlling" | Controlled -> "controlled"));
+    ("consent", get_consent_status agent);
   ]
 
 (** {1 Pretty Printing} *)
