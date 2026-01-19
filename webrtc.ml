@@ -60,6 +60,7 @@ module Webrtc_crypto = Webrtc_crypto  (** TLS 1.2 PRF and AES-GCM *)
 
 module Udp_transport = Udp_transport  (** Real UDP socket I/O *)
 module Sctp_transport = Sctp_transport  (** SCTP over UDP with real network I/O *)
+module Ice_dtls_transport = Ice_dtls_transport  (** Full ICE + DTLS + SCTP WebRTC stack *)
 
 (** {1 Reliable Transport (Full SCTP State Machine)} *)
 

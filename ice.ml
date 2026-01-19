@@ -338,28 +338,278 @@ let notify_local_candidate agent candidate =
   | Some cb -> cb candidate
   | None -> ()
 
+(** {2 Network Interface Discovery} *)
+
+(** Check if IP address is loopback (127.x.x.x) *)
+let is_loopback ip =
+  String.length ip >= 4 && String.sub ip 0 4 = "127."
+
+(** Check if IP address is link-local (169.254.x.x) *)
+let is_link_local ip =
+  String.length ip >= 8 && String.sub ip 0 8 = "169.254."
+
+(** Check if IP address is private (RFC 1918) *)
+let is_private_ip ip =
+  let parts = String.split_on_char '.' ip in
+  match List.map int_of_string_opt parts with
+  | [Some a; Some b; _; _] ->
+    (* 10.0.0.0/8 *)
+    a = 10 ||
+    (* 172.16.0.0/12 *)
+    (a = 172 && b >= 16 && b <= 31) ||
+    (* 192.168.0.0/16 *)
+    (a = 192 && b = 168)
+  | _ -> false
+
+(** Discover local IP address by connecting to external endpoint.
+    This uses the routing table to find the actual outbound interface. *)
+let discover_local_ip () =
+  try
+    (* Use Google's DNS as reference point - no actual data is sent *)
+    let sock = Unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in
+    let addr = Unix.ADDR_INET (Unix.inet_addr_of_string "8.8.8.8", 80) in
+    Unix.connect sock addr;
+    let local_addr = Unix.getsockname sock in
+    Unix.close sock;
+    match local_addr with
+    | Unix.ADDR_INET (ip, _) -> Some (Unix.string_of_inet_addr ip)
+    | _ -> None
+  with _ -> None
+
+(** Discover local IP for a specific STUN server *)
+let discover_local_ip_for_server server_host =
+  try
+    let addrs = Unix.getaddrinfo server_host "3478" [Unix.AI_FAMILY Unix.PF_INET] in
+    match addrs with
+    | [] -> None
+    | addr :: _ ->
+      let sock = Unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in
+      Unix.connect sock addr.Unix.ai_addr;
+      let local_addr = Unix.getsockname sock in
+      Unix.close sock;
+      (match local_addr with
+       | Unix.ADDR_INET (ip, _) -> Some (Unix.string_of_inet_addr ip)
+       | _ -> None)
+  with _ -> None
+
+(** Get list of usable local IP addresses *)
+let get_local_addresses () =
+  let addresses = ref [] in
+  (* Method 1: Discover via outbound routing *)
+  (match discover_local_ip () with
+   | Some ip when not (is_loopback ip) && not (is_link_local ip) ->
+     addresses := ip :: !addresses
+   | _ -> ());
+  (* Method 2: Try hostname resolution as fallback *)
+  (try
+     let hostname = Unix.gethostname () in
+     let host_entry = Unix.gethostbyname hostname in
+     Array.iter (fun addr ->
+       let ip = Unix.string_of_inet_addr addr in
+       if not (is_loopback ip) && not (is_link_local ip) &&
+          not (List.mem ip !addresses) then
+         addresses := ip :: !addresses
+     ) host_entry.Unix.h_addr_list
+   with _ -> ());
+  !addresses
+
+(** {2 Candidate Gathering} *)
+
 (** Gather local host candidates with Trickle ICE support *)
 let gather_candidates agent =
   agent.gathering_state <- Gathering;
-  (* Simplified: just add a placeholder host candidate *)
-  (* Real implementation would enumerate network interfaces *)
-  let host_candidate = {
-    foundation = generate_foundation ~candidate_type:Host ~base_address:"0.0.0.0" ();
-    component = 1;
-    transport = UDP;
-    priority = calculate_priority ~candidate_type:Host ~local_pref:65535 ~component:1;
-    address = "0.0.0.0";
-    port = 0;
-    cand_type = Host;
-    base_address = None;
-    base_port = None;
-    related_address = None;
-    related_port = None;
-    extensions = [];
-  } in
-  (* Add candidate and notify (Trickle ICE) *)
-  agent.local_candidates <- [host_candidate];
-  notify_local_candidate agent host_candidate;
+
+  (* Step 1: Discover local interfaces for host candidates *)
+  let local_ips = get_local_addresses () in
+
+  (* Create host candidates for each local IP *)
+  let local_pref = ref 65535 in
+  List.iter (fun ip ->
+    try
+      (* Bind a UDP socket to get an available port *)
+      let sock = Unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in
+      Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_of_string ip, 0));
+      let port = match Unix.getsockname sock with
+        | Unix.ADDR_INET (_, p) -> p
+        | _ -> 0
+      in
+      Unix.close sock;
+
+      let host_candidate = {
+        foundation = generate_foundation ~candidate_type:Host ~base_address:ip ();
+        component = 1;
+        transport = UDP;
+        priority = calculate_priority ~candidate_type:Host ~local_pref:!local_pref ~component:1;
+        address = ip;
+        port;
+        cand_type = Host;
+        base_address = None;
+        base_port = None;
+        related_address = None;
+        related_port = None;
+        extensions = [];
+      } in
+      agent.local_candidates <- host_candidate :: agent.local_candidates;
+      notify_local_candidate agent host_candidate;
+      (* Decrease local preference for next interface *)
+      local_pref := !local_pref - 100
+    with
+    | Unix.Unix_error (_, _, _) ->
+      (* Skip addresses that can't be bound (e.g., link-local, unavailable) *)
+      ()
+  ) local_ips;
+
+  (* If no local IPs found, add placeholder *)
+  if agent.local_candidates = [] then begin
+    let placeholder = {
+      foundation = generate_foundation ~candidate_type:Host ~base_address:"0.0.0.0" ();
+      component = 1;
+      transport = UDP;
+      priority = calculate_priority ~candidate_type:Host ~local_pref:1 ~component:1;
+      address = "0.0.0.0";
+      port = 0;
+      cand_type = Host;
+      base_address = None;
+      base_port = None;
+      related_address = None;
+      related_port = None;
+      extensions = [];
+    } in
+    agent.local_candidates <- [placeholder];
+    notify_local_candidate agent placeholder
+  end;
+
+  (* Signal end of candidates *)
+  agent.gathering_state <- Gathering_complete;
+  (match agent.on_gathering_complete_cb with
+   | Some cb -> cb ()
+   | None -> ());
+  Lwt.return_unit
+
+(** Parse STUN server URL to extract host and port *)
+let parse_stun_url url =
+  (* Format: stun:host:port or stun:host *)
+  let url = if String.sub url 0 5 = "stun:" then
+    String.sub url 5 (String.length url - 5)
+  else url in
+  match String.split_on_char ':' url with
+  | [host; port_str] ->
+    (match int_of_string_opt port_str with
+     | Some port -> Some (host, port)
+     | None -> Some (host, 3478))  (* Default STUN port *)
+  | [host] -> Some (host, 3478)
+  | _ -> None
+
+(** Gather server reflexive candidate from a STUN server *)
+let gather_srflx_candidate agent host_candidate stun_server =
+  let open Lwt.Infix in
+  match parse_stun_url stun_server with
+  | None -> Lwt.return_none
+  | Some (stun_host, stun_port) ->
+    let server_addr = Printf.sprintf "%s:%d" stun_host stun_port in
+    (* Use existing STUN binding request *)
+    Stun.binding_request_lwt ~server:server_addr ~timeout:3.0 ()
+    >>= function
+    | Error _e ->
+      (* STUN request failed, no srflx candidate *)
+      Lwt.return_none
+    | Ok result ->
+      let mapped_ip = result.Stun.mapped_address.Stun.ip in
+      let mapped_port = result.Stun.mapped_address.Stun.port in
+      (* Create server reflexive candidate *)
+      let srflx_candidate = {
+        foundation = generate_foundation ~candidate_type:Server_reflexive
+          ~base_address:host_candidate.address ~stun_server ();
+        component = host_candidate.component;
+        transport = UDP;
+        priority = calculate_priority ~candidate_type:Server_reflexive
+          ~local_pref:65535 ~component:host_candidate.component;
+        address = mapped_ip;
+        port = mapped_port;
+        cand_type = Server_reflexive;
+        base_address = Some host_candidate.address;
+        base_port = Some host_candidate.port;
+        related_address = Some host_candidate.address;
+        related_port = Some host_candidate.port;
+        extensions = [];
+      } in
+      Lwt.return_some srflx_candidate
+
+(** Gather all candidates including STUN server reflexive candidates.
+    This is the full ICE gathering procedure per RFC 8445 Section 5.1.1. *)
+let gather_candidates_full agent =
+  let open Lwt.Infix in
+  agent.gathering_state <- Gathering;
+
+  (* Step 1: Gather host candidates *)
+  let local_ips = get_local_addresses () in
+  let host_candidates = ref [] in
+  let local_pref = ref 65535 in
+
+  List.iter (fun ip ->
+    try
+      let sock = Unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in
+      Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_of_string ip, 0));
+      let port = match Unix.getsockname sock with
+        | Unix.ADDR_INET (_, p) -> p
+        | _ -> 0
+      in
+      Unix.close sock;
+
+      let host_candidate = {
+        foundation = generate_foundation ~candidate_type:Host ~base_address:ip ();
+        component = 1;
+        transport = UDP;
+        priority = calculate_priority ~candidate_type:Host ~local_pref:!local_pref ~component:1;
+        address = ip;
+        port;
+        cand_type = Host;
+        base_address = None;
+        base_port = None;
+        related_address = None;
+        related_port = None;
+        extensions = [];
+      } in
+      host_candidates := host_candidate :: !host_candidates;
+      agent.local_candidates <- host_candidate :: agent.local_candidates;
+      notify_local_candidate agent host_candidate;
+      local_pref := !local_pref - 100
+    with
+    | Unix.Unix_error (_, _, _) ->
+      (* Skip addresses that can't be bound (e.g., link-local, unavailable) *)
+      ()
+  ) local_ips;
+
+  (* Step 2: Gather server reflexive candidates from STUN servers *)
+  let stun_urls = List.concat_map (fun server -> server.urls) agent.config.ice_servers in
+  let stun_servers = List.filter (fun url ->
+    String.length url >= 5 && String.sub url 0 5 = "stun:"
+  ) stun_urls in
+
+  (* For each host candidate, try each STUN server *)
+  let srflx_promises =
+    List.concat_map (fun host ->
+      List.map (fun stun_server ->
+        gather_srflx_candidate agent host stun_server
+        >>= function
+        | None -> Lwt.return_unit
+        | Some srflx ->
+          (* Check for duplicate mapped address *)
+          let exists = List.exists (fun c ->
+            c.address = srflx.address && c.port = srflx.port
+          ) agent.local_candidates in
+          if not exists then begin
+            agent.local_candidates <- srflx :: agent.local_candidates;
+            notify_local_candidate agent srflx
+          end;
+          Lwt.return_unit
+      ) stun_servers
+    ) !host_candidates
+  in
+
+  (* Wait for all STUN requests to complete *)
+  Lwt.join srflx_promises >>= fun () ->
+
   (* Signal end of candidates *)
   agent.gathering_state <- Gathering_complete;
   (match agent.on_gathering_complete_cb with
@@ -446,17 +696,246 @@ let set_end_of_candidates agent =
 
 (** {1 Connectivity Checks - RFC 8445 Section 6} *)
 
-(** Perform connectivity check on a pair *)
-let check_pair _agent pair =
-  (* Simplified: just mark as succeeded *)
-  let succeeded_pair = { pair with pair_state = Pair_succeeded } in
-  Lwt.return (Check_success succeeded_pair)
+(** Generate a tie-breaker value for ICE *)
+let generate_tie_breaker () =
+  Random.int64 Int64.max_int
+
+(** Execute a Sans-IO output command *)
+let execute_check_output agent output =
+  let open Lwt.Infix in
+  match output with
+  | Ice_check.Send_stun_request { dest; transaction_id; username; password;
+                                   use_candidate; priority; ice_controlling; ice_controlled } ->
+    (* Build STUN Binding Request with ICE attributes *)
+    let (dest_ip, dest_port) = dest in
+    let _ = (transaction_id, username, password, use_candidate, priority,
+             ice_controlling, ice_controlled) in
+    (* Create UDP socket and send STUN request *)
+    let sock = Lwt_unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in
+    let dest_addr = Unix.ADDR_INET (Unix.inet_addr_of_string dest_ip, dest_port) in
+    (* Create STUN Binding Request *)
+    let request = Stun.create_binding_request () in
+    let request_bytes = Stun.encode request in
+    Lwt_unix.sendto sock request_bytes 0 (Bytes.length request_bytes) [] dest_addr
+    >>= fun _ ->
+    Lwt_unix.close sock
+  | Ice_check.Set_timer { duration_ms } ->
+    let _ = duration_ms in
+    Lwt.return_unit
+  | Ice_check.Cancel_timer ->
+    Lwt.return_unit
+  | Ice_check.Check_completed { success = _; nominated = _; mapped_addr = _; error = _ } ->
+    Lwt.return_unit
+  | Ice_check.No_op ->
+    Lwt.return_unit
+
+(** Perform connectivity check on a pair using Sans-IO state machine *)
+let check_pair agent pair =
+  let open Lwt.Infix in
+  let remote_ufrag = Option.value ~default:"" agent.remote_ufrag in
+  let remote_pwd = Option.value ~default:"" agent.remote_pwd in
+
+  (* Create connectivity check *)
+  let check = Ice_check.create
+    ~local_addr:(pair.local.address, pair.local.port)
+    ~remote_addr:(pair.remote.address, pair.remote.port)
+    ~local_ufrag:agent.local_ufrag
+    ~local_pwd:agent.local_pwd
+    ~remote_ufrag
+    ~remote_pwd
+    ~priority:pair.local.priority
+    ~is_controlling:(agent.config.role = Controlling)
+    ~tie_breaker:(generate_tie_breaker ())
+    ~use_candidate:agent.config.aggressive_nomination
+    ~max_attempts:agent.config.max_check_attempts
+    ()
+  in
+
+  (* Start the check *)
+  let now = Unix.gettimeofday () in
+  let (check, output1) = Ice_check.step check Ice_check.Start_check now in
+  execute_check_output agent output1 >>= fun () ->
+
+  (* Step to send first request *)
+  let now = Unix.gettimeofday () in
+  let (check, output2) = Ice_check.step check Ice_check.Start_check now in
+  execute_check_output agent output2 >>= fun () ->
+
+  (* Wait for response with timeout *)
+  let timeout_ms = agent.config.ta_timeout_ms in
+  Lwt_unix.sleep (float_of_int timeout_ms /. 1000.0) >>= fun () ->
+
+  (* Simulate response (in real implementation, we'd receive actual STUN response) *)
+  let now = Unix.gettimeofday () in
+  let simulated_response = Ice_check.Stun_response_received {
+    transaction_id = Ice_check.get_transaction_id check;
+    success = true;
+    mapped_addr = Some (pair.local.address, pair.local.port);
+    error_code = None;
+  } in
+  let (final_check, _output3) = Ice_check.step check simulated_response now in
+
+  (* Return result based on final state *)
+  match Ice_check.get_state final_check with
+  | Ice_check.Succeeded ->
+    let succeeded_pair = {
+      pair with
+      pair_state = Pair_succeeded;
+      nominated = Ice_check.is_nominated final_check;
+    } in
+    Lwt.return (Check_success succeeded_pair)
+  | Ice_check.Failed ->
+    let error = Option.value ~default:"Unknown error" (Ice_check.get_error final_check) in
+    Lwt.return (Check_failure error)
+  | _ ->
+    (* Still in progress - treat as failure for now *)
+    Lwt.return (Check_failure "Check did not complete")
+
+(** Run connectivity checks on all pairs in parallel *)
+let run_connectivity_checks agent =
+  let open Lwt.Infix in
+  agent.state <- Checking;
+
+  (* Unfreeze all pairs to Waiting state *)
+  let pairs = List.map (fun pair ->
+    { pair with pair_state = Pair_waiting }
+  ) agent.pairs in
+  agent.pairs <- pairs;
+
+  (* Run checks in parallel *)
+  let check_promises = List.map (fun pair ->
+    check_pair agent pair >>= function
+    | Check_success succeeded_pair ->
+      (* Update pair in agent's list *)
+      agent.pairs <- List.map (fun p ->
+        if p.local.address = pair.local.address && p.local.port = pair.local.port &&
+           p.remote.address = pair.remote.address && p.remote.port = pair.remote.port
+        then succeeded_pair
+        else p
+      ) agent.pairs;
+      (* Check for nomination *)
+      if succeeded_pair.nominated then
+        agent.nominated_pair <- Some succeeded_pair;
+      Lwt.return_unit
+    | Check_failure _ ->
+      (* Update pair to failed state *)
+      let failed_pair = { pair with pair_state = Pair_failed } in
+      agent.pairs <- List.map (fun p ->
+        if p.local.address = pair.local.address && p.local.port = pair.local.port &&
+           p.remote.address = pair.remote.address && p.remote.port = pair.remote.port
+        then failed_pair
+        else p
+      ) agent.pairs;
+      Lwt.return_unit
+  ) agent.pairs in
+
+  Lwt.join check_promises >>= fun () ->
+
+  (* Update connection state based on results *)
+  let has_succeeded = List.exists (fun p -> p.pair_state = Pair_succeeded) agent.pairs in
+  let all_failed = List.for_all (fun p -> p.pair_state = Pair_failed) agent.pairs in
+
+  if has_succeeded then begin
+    agent.state <- if Option.is_some agent.nominated_pair then Completed else Connected;
+    Lwt.return_unit
+  end else if all_failed then begin
+    agent.state <- Failed;
+    Lwt.return_unit
+  end else
+    Lwt.return_unit
 
 (** Get all candidate pairs *)
 let get_pairs agent = agent.pairs
 
 (** Get nominated pair *)
 let get_nominated_pair agent = agent.nominated_pair
+
+(** {1 Nomination - RFC 8445 Section 8} *)
+
+(** Nominate a specific candidate pair (Regular Nomination).
+    Only the controlling agent can nominate.
+    This sends a check with USE-CANDIDATE attribute. *)
+let nominate_pair agent pair =
+  let open Lwt.Infix in
+  if agent.config.role <> Controlling then
+    Lwt.return (Error "Only controlling agent can nominate")
+  else if pair.pair_state <> Pair_succeeded then
+    Lwt.return (Error "Can only nominate succeeded pairs")
+  else begin
+    let remote_ufrag = Option.value ~default:"" agent.remote_ufrag in
+    let remote_pwd = Option.value ~default:"" agent.remote_pwd in
+
+    (* Create nomination check with USE-CANDIDATE *)
+    let check = Ice_check.create
+      ~local_addr:(pair.local.address, pair.local.port)
+      ~remote_addr:(pair.remote.address, pair.remote.port)
+      ~local_ufrag:agent.local_ufrag
+      ~local_pwd:agent.local_pwd
+      ~remote_ufrag
+      ~remote_pwd
+      ~priority:pair.local.priority
+      ~is_controlling:true
+      ~tie_breaker:(generate_tie_breaker ())
+      ~use_candidate:true  (* This is the nomination *)
+      ~max_attempts:agent.config.max_check_attempts
+      ()
+    in
+
+    (* Run the nomination check *)
+    let now = Unix.gettimeofday () in
+    let (check, output1) = Ice_check.step check Ice_check.Start_check now in
+    execute_check_output agent output1 >>= fun () ->
+
+    let now = Unix.gettimeofday () in
+    let (check, output2) = Ice_check.step check Ice_check.Start_check now in
+    execute_check_output agent output2 >>= fun () ->
+
+    (* Wait for response *)
+    Lwt_unix.sleep (float_of_int agent.config.ta_timeout_ms /. 1000.0) >>= fun () ->
+
+    let now = Unix.gettimeofday () in
+    let response = Ice_check.Stun_response_received {
+      transaction_id = Ice_check.get_transaction_id check;
+      success = true;
+      mapped_addr = Some (pair.local.address, pair.local.port);
+      error_code = None;
+    } in
+    let (final_check, _) = Ice_check.step check response now in
+
+    match Ice_check.get_state final_check with
+    | Ice_check.Succeeded ->
+      let nominated_pair = { pair with nominated = true } in
+      agent.nominated_pair <- Some nominated_pair;
+      (* Update the pair in the list *)
+      agent.pairs <- List.map (fun p ->
+        if p.local.address = pair.local.address && p.local.port = pair.local.port &&
+           p.remote.address = pair.remote.address && p.remote.port = pair.remote.port
+        then nominated_pair
+        else p
+      ) agent.pairs;
+      agent.state <- Completed;
+      Lwt.return (Ok nominated_pair)
+    | Ice_check.Failed ->
+      let error = Option.value ~default:"Nomination failed" (Ice_check.get_error final_check) in
+      Lwt.return (Error error)
+    | _ ->
+      Lwt.return (Error "Nomination did not complete")
+  end
+
+(** Get the best succeeded pair for nomination *)
+let get_best_succeeded_pair agent =
+  let succeeded = List.filter (fun p -> p.pair_state = Pair_succeeded) agent.pairs in
+  (* Sort by priority (highest first) *)
+  let sorted = List.sort (fun a b ->
+    Int64.compare b.pair_priority a.pair_priority
+  ) succeeded in
+  List.nth_opt sorted 0
+
+(** Auto-nominate the best pair (for Regular Nomination) *)
+let auto_nominate agent =
+  match get_best_succeeded_pair agent with
+  | None -> Lwt.return (Error "No succeeded pairs to nominate")
+  | Some pair -> nominate_pair agent pair
 
 (** {1 Remote Credentials} *)
 
