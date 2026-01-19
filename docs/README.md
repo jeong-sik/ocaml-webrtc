@@ -101,6 +101,7 @@ Run compliance tests: `dune exec ./test/rfc_compliance_test.exe`
 - [API Reference](API.md)
 - [Performance Optimization](PERFORMANCE-OPTIMIZATION.md)
 - [Media Worker Interface](MEDIA-WORKER-INTERFACE.md)
+- [Core Media Plan](CORE-MEDIA-PLAN.md)
 
 ## License
 
