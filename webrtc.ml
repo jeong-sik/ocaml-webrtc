@@ -50,6 +50,7 @@
 module Stun = Stun
 module Turn = Turn
 module Ice = Ice
+module Ice_check = Ice_check  (** RFC 8445 ICE Connectivity Checks (Sans-IO) *)
 module Dtls = Dtls
 module Sctp = Sctp
 module Sdp = Sdp

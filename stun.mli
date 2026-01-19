@@ -22,11 +22,18 @@ type message_class =
   | Success_response  (** 0b10 - Successful response *)
   | Error_response    (** 0b11 - Error response *)
 
-(** STUN message method *)
+(** STUN/TURN message method *)
 type message_method =
   | Binding           (** 0x001 - Basic STUN binding *)
+  (* RFC 5766 TURN methods *)
+  | Allocate          (** 0x003 - TURN allocate relay address *)
+  | Refresh           (** 0x004 - TURN refresh allocation *)
+  | Send              (** 0x006 - TURN send indication *)
+  | Data              (** 0x007 - TURN data indication *)
+  | CreatePermission  (** 0x008 - TURN create permission *)
+  | ChannelBind       (** 0x009 - TURN channel bind *)
 
-(** STUN attribute types *)
+(** STUN/TURN attribute types *)
 type attribute_type =
   (* Comprehension-required (0x0000-0x7FFF) *)
   | MAPPED_ADDRESS        (** 0x0001 *)
@@ -34,9 +41,19 @@ type attribute_type =
   | MESSAGE_INTEGRITY     (** 0x0008 *)
   | ERROR_CODE            (** 0x0009 *)
   | UNKNOWN_ATTRIBUTES    (** 0x000A *)
+  (* RFC 5766 TURN attributes *)
+  | CHANNEL_NUMBER        (** 0x000C - TURN channel number *)
+  | LIFETIME              (** 0x000D - TURN allocation lifetime *)
+  | XOR_PEER_ADDRESS      (** 0x0012 - TURN peer address *)
+  | DATA                  (** 0x0013 - TURN data attribute *)
   | REALM                 (** 0x0014 *)
   | NONCE                 (** 0x0015 *)
+  | XOR_RELAYED_ADDRESS   (** 0x0016 - TURN relayed address *)
+  | EVEN_PORT             (** 0x0018 - TURN even port *)
+  | REQUESTED_TRANSPORT   (** 0x0019 - TURN requested transport *)
+  | DONT_FRAGMENT         (** 0x001A - TURN don't fragment *)
   | XOR_MAPPED_ADDRESS    (** 0x0020 *)
+  | RESERVATION_TOKEN     (** 0x0022 - TURN reservation token *)
   (* Comprehension-optional (0x8000-0xFFFF) *)
   | SOFTWARE              (** 0x8022 *)
   | ALTERNATE_SERVER      (** 0x8023 *)
@@ -55,7 +72,7 @@ type address = {
   ip: string;  (** Dotted quad for IPv4, colon-hex for IPv6 *)
 }
 
-(** STUN attribute value *)
+(** STUN/TURN attribute value *)
 type attribute_value =
   | Mapped_address of address
   | Xor_mapped_address of address
@@ -66,6 +83,16 @@ type attribute_value =
   | Software of string
   | Realm of string
   | Nonce of string
+  (* RFC 5766 TURN attribute values *)
+  | Channel_number of int           (** TURN channel number (0x4000-0x7FFF) *)
+  | Lifetime of int                 (** TURN allocation lifetime in seconds *)
+  | Xor_peer_address of address     (** TURN XOR-PEER-ADDRESS *)
+  | Xor_relayed_address of address  (** TURN XOR-RELAYED-ADDRESS *)
+  | Data_attr of bytes              (** TURN DATA attribute *)
+  | Requested_transport of int      (** TURN transport protocol (17=UDP, 6=TCP) *)
+  | Even_port of bool               (** TURN even port request *)
+  | Dont_fragment                   (** TURN don't fragment flag *)
+  | Reservation_token of bytes      (** TURN reservation token (8 bytes) *)
   | Unknown_attr of bytes
 
 (** STUN attribute *)
@@ -229,3 +256,83 @@ val binding_request_sync :
   ?timeout:float ->
   unit ->
   (binding_result, string) result
+
+(** {1 RFC 5766 TURN Functions} *)
+
+(** Create a TURN Allocate Request message.
+    @param transaction_id Optional transaction ID (generated if not provided)
+    @param transport Transport protocol (17 = UDP, 6 = TCP, default: UDP)
+    @param lifetime Optional requested lifetime in seconds
+    @param dont_fragment Include DONT-FRAGMENT attribute
+    @return TURN Allocate Request message *)
+val create_allocate_request :
+  ?transaction_id:bytes ->
+  ?transport:int ->
+  ?lifetime:int ->
+  ?dont_fragment:bool ->
+  unit ->
+  message
+
+(** Create a TURN Allocate Success Response message.
+    @param transaction_id Transaction ID from request
+    @param relayed_address The allocated relay address
+    @param mapped_address Client's server-reflexive address
+    @param lifetime Allocation lifetime in seconds
+    @return TURN Allocate Success Response message *)
+val create_allocate_response :
+  transaction_id:bytes ->
+  relayed_address:address ->
+  mapped_address:address ->
+  lifetime:int ->
+  message
+
+(** Create a TURN Refresh Request message.
+    @param transaction_id Optional transaction ID
+    @param lifetime Requested lifetime (0 to deallocate)
+    @return TURN Refresh Request message *)
+val create_refresh_request :
+  ?transaction_id:bytes ->
+  lifetime:int ->
+  unit ->
+  message
+
+(** TURN Allocate result containing the relayed address and lifetime *)
+type allocate_result = {
+  relayed_address: address;  (** Allocated relay address *)
+  mapped_address: address;   (** Client's reflexive address *)
+  lifetime: int;             (** Allocation lifetime in seconds *)
+}
+
+(** TURN error codes (RFC 5766 Section 15) *)
+type turn_error =
+  | Allocation_mismatch     (** 437 - Allocation mismatch *)
+  | Wrong_credentials       (** 441 - Wrong credentials *)
+  | Unsupported_transport   (** 442 - Unsupported transport protocol *)
+  | Allocation_quota_reached (** 486 - Allocation quota reached *)
+  | Insufficient_capacity   (** 508 - Insufficient capacity *)
+
+(** Get TURN error code integer *)
+val turn_error_to_int : turn_error -> int
+
+(** Get TURN error type from integer *)
+val int_to_turn_error : int -> turn_error option
+
+(** Extract allocate result from a TURN Allocate Success Response.
+    @param msg TURN Allocate Success Response message
+    @return Allocate result or error string *)
+val parse_allocate_response : message -> (allocate_result, string) result
+
+(** Send TURN Allocate request and get response (Lwt async).
+    This is an unauthenticated allocate for testing with local TURN servers.
+    @param server TURN server address (host:port)
+    @param transport Transport protocol (17 = UDP, 6 = TCP, default: UDP)
+    @param lifetime Optional requested lifetime in seconds
+    @param timeout Timeout in seconds (default: 5.0)
+    @return Allocate result or error Lwt promise *)
+val allocate_request_lwt :
+  server:string ->
+  ?transport:int ->
+  ?lifetime:int ->
+  ?timeout:float ->
+  unit ->
+  (allocate_result, string) result Lwt.t
