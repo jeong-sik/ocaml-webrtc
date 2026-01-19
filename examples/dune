@@ -23,3 +23,9 @@
  (public_name datachannel)
  (package ocaml-webrtc)
  (libraries webrtc mirage-crypto-rng.unix lwt lwt.unix))
+
+(executable
+ (name eio_datachannel)
+ (public_name eio-datachannel)
+ (package ocaml-webrtc)
+ (libraries webrtc mirage-crypto-rng.unix eio eio_main eio_posix))

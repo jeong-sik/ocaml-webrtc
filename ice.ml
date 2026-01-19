@@ -223,6 +223,26 @@ let generate_foundation ~candidate_type ~base_address ?stun_server () =
   (* Simple hash-based foundation *)
   Digest.string input |> Digest.to_hex |> fun s -> String.sub s 0 8
 
+(** Create a server-reflexive candidate from STUN response.
+    This is a helper for Eio-based ICE implementations. *)
+let create_srflx_candidate ~component ~address ~port ~base_address ~base_port =
+  {
+    foundation = generate_foundation ~candidate_type:Server_reflexive
+      ~base_address ();
+    component;
+    transport = UDP;
+    priority = calculate_priority ~candidate_type:Server_reflexive
+      ~local_pref:65535 ~component;
+    address;
+    port;
+    cand_type = Server_reflexive;
+    base_address = Some base_address;
+    base_port = Some base_port;
+    related_address = Some base_address;
+    related_port = Some base_port;
+    extensions = [];
+  }
+
 (** {1 Candidate Parsing - RFC 8445 Section 15.1} *)
 
 (** Parse SDP candidate attribute line *)
@@ -414,6 +434,49 @@ let get_local_addresses () =
   !addresses
 
 (** {2 Candidate Gathering} *)
+
+(** Gather local host candidates - synchronous version for Eio *)
+let gather_host_candidates agent =
+  agent.gathering_state <- Gathering;
+
+  (* Step 1: Discover local interfaces for host candidates *)
+  let local_ips = get_local_addresses () in
+
+  (* Create host candidates for each local IP *)
+  let local_pref = ref 65535 in
+  List.iter (fun ip ->
+    try
+      (* Bind a UDP socket to get an available port *)
+      let sock = Unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in
+      Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_of_string ip, 0));
+      let port = match Unix.getsockname sock with
+        | Unix.ADDR_INET (_, p) -> p
+        | _ -> 0
+      in
+      Unix.close sock;
+
+      let host_candidate = {
+        foundation = generate_foundation ~candidate_type:Host ~base_address:ip ();
+        component = 1;
+        transport = UDP;
+        priority = calculate_priority ~candidate_type:Host ~local_pref:!local_pref ~component:1;
+        address = ip;
+        port;
+        cand_type = Host;
+        base_address = None;
+        base_port = None;
+        related_address = None;
+        related_port = None;
+        extensions = [];
+      } in
+      agent.local_candidates <- host_candidate :: agent.local_candidates;
+      notify_local_candidate agent host_candidate;
+      local_pref := !local_pref - 100
+    with
+    | Unix.Unix_error (_, _, _) -> ()
+  ) local_ips;
+
+  agent.local_candidates
 
 (** Gather local host candidates with Trickle ICE support *)
 let gather_candidates agent =
@@ -947,6 +1010,19 @@ let set_remote_credentials agent ~ufrag ~pwd =
 (** Get local credentials *)
 let get_local_credentials agent =
   (agent.local_ufrag, agent.local_pwd)
+
+(** Get agent configuration *)
+let get_config agent = agent.config
+
+(** Set gathering state to complete *)
+let set_gathering_complete agent =
+  agent.gathering_state <- Gathering_complete
+
+(** Set nominated pair manually *)
+let set_nominated agent =
+  match get_best_succeeded_pair agent with
+  | Some pair -> agent.nominated_pair <- Some pair
+  | None -> ()
 
 (** {1 State Management} *)
 

@@ -96,6 +96,12 @@ module Dtls_sctp_transport = Dtls_sctp_transport  (** DTLS-encrypted SCTP transp
 module Eio_udp_transport = Eio_udp_transport  (** True async UDP with Eio *)
 module Eio_sctp_full_transport = Eio_sctp_full_transport  (** Concurrent SCTP with fibers *)
 
+(** {1 Eio Full Stack (v0.6.0)} *)
+
+module Ice_eio = Ice_eio  (** Eio-based ICE agent with fibers *)
+module Dtls_eio = Dtls_eio  (** Eio-based DTLS with timer management *)
+module Webrtc_eio = Webrtc_eio  (** Full WebRTC stack with Eio integration *)
+
 (** Library version *)
 let version = "0.4.0"
 
