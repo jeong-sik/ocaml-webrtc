@@ -96,12 +96,12 @@ val set_hmac_secret : string -> unit
 
     @param secret A strong random secret (at least 32 bytes recommended) *)
 
-val init_hmac_secret_from_env : unit -> bool
+val init_hmac_secret_from_env : unit -> (bool, string) result
 (** [init_hmac_secret_from_env ()] loads HMAC secret from SCTP_HMAC_SECRET
     environment variable.
 
-    @return [true] if successfully loaded, [false] if not set
-    @raise Failure if env var is set but empty *)
+    @return [Ok true] if successfully loaded, [Ok false] if not set,
+            [Error msg] if env var is set but empty *)
 
 (** {1 Random Generation} *)
 

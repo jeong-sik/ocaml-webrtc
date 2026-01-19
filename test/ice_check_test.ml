@@ -52,6 +52,7 @@ let create_test_check
     ?(use_candidate=false)
     ?(max_attempts=7)
     () =
+  let config = { Ice_check.default_config with max_attempts } in
   Ice_check.create
     ~local_addr
     ~remote_addr
@@ -63,7 +64,7 @@ let create_test_check
     ~is_controlling
     ~tie_breaker
     ~use_candidate
-    ~max_attempts
+    ~config
     ()
 
 (* ═══════════════════════════════════════════════════════════════════════════ *)

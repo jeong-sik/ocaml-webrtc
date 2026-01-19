@@ -38,6 +38,7 @@ type transaction = {
   attempt: int;               (** Current attempt number (1-based) *)
   max_attempts: int;          (** Maximum attempts before failure *)
   rto_ms: int;                (** Current retransmission timeout *)
+  max_rto_ms: int;            (** Maximum RTO cap for backoff *)
   sent_at: float;             (** Timestamp of last send *)
 }
 
@@ -97,13 +98,21 @@ type output =
     }
   | No_op                           (** No action needed *)
 
-(** {1 Constants} *)
+(** {1 Configuration} *)
 
-(** RFC 8445 Section 14.3: Initial RTO for connectivity checks *)
-let initial_rto_ms = 500
+(** Timing configuration for connectivity checks *)
+type config = {
+  initial_rto_ms: int;  (** RFC 8445 Section 14.3: Initial RTO (default: 500) *)
+  max_rto_ms: int;      (** Maximum RTO after exponential backoff (default: 3000) *)
+  max_attempts: int;    (** Maximum retransmission attempts (default: 7) *)
+}
 
-(** Maximum RTO after exponential backoff *)
-let max_rto_ms = 3000
+(** Default configuration per RFC 8445 recommendations *)
+let default_config = {
+  initial_rto_ms = 500;
+  max_rto_ms = 3000;
+  max_attempts = 7;
+}
 
 (** {1 Creation} *)
 
@@ -127,7 +136,7 @@ let create
     ~is_controlling
     ~tie_breaker
     ~use_candidate
-    ~max_attempts
+    ?(config = default_config)
     () =
   let username = remote_ufrag ^ ":" ^ local_ufrag in
   let stun_attrs = {
@@ -141,8 +150,9 @@ let create
   let transaction = {
     id = generate_transaction_id ();
     attempt = 0;
-    max_attempts;
-    rto_ms = initial_rto_ms;
+    max_attempts = config.max_attempts;
+    rto_ms = config.initial_rto_ms;
+    max_rto_ms = config.max_rto_ms;
     sent_at = 0.0;
   } in
   let context = {
@@ -161,7 +171,7 @@ let create
 (** {1 State Transitions (Pure Functions)} *)
 
 (** Calculate next RTO with exponential backoff *)
-let next_rto current_rto =
+let next_rto ~max_rto_ms current_rto =
   min (current_rto * 2) max_rto_ms
 
 (** Handle state transition and produce output *)
@@ -259,7 +269,7 @@ let step (check : t) (input : input) (now : float) : t * output =
       (check, output)
     else
       (* Retransmit with exponential backoff *)
-      let new_rto = next_rto tx.rto_ms in
+      let new_rto = next_rto ~max_rto_ms:tx.max_rto_ms tx.rto_ms in
       let transaction = {
         tx with
         attempt = tx.attempt + 1;

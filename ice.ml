@@ -1016,6 +1016,9 @@ let check_pair agent pair =
   let remote_pwd = Option.value ~default:"" agent.remote_pwd in
 
   (* Create connectivity check *)
+  let check_config = { Ice_check.default_config with
+    max_attempts = agent.config.max_check_attempts
+  } in
   let check = Ice_check.create
     ~local_addr:(pair.local.address, pair.local.port)
     ~remote_addr:(pair.remote.address, pair.remote.port)
@@ -1027,7 +1030,7 @@ let check_pair agent pair =
     ~is_controlling:(agent.config.role = Controlling)
     ~tie_breaker:(generate_tie_breaker ())
     ~use_candidate:agent.config.aggressive_nomination
-    ~max_attempts:agent.config.max_check_attempts
+    ~config:check_config
     ()
   in
 
@@ -1146,6 +1149,9 @@ let nominate_pair agent pair =
     let remote_pwd = Option.value ~default:"" agent.remote_pwd in
 
     (* Create nomination check with USE-CANDIDATE *)
+    let check_config = { Ice_check.default_config with
+      max_attempts = agent.config.max_check_attempts
+    } in
     let check = Ice_check.create
       ~local_addr:(pair.local.address, pair.local.port)
       ~remote_addr:(pair.remote.address, pair.remote.port)
@@ -1157,7 +1163,7 @@ let nominate_pair agent pair =
       ~is_controlling:true
       ~tie_breaker:(generate_tie_breaker ())
       ~use_candidate:true  (* This is the nomination *)
-      ~max_attempts:agent.config.max_check_attempts
+      ~config:check_config
       ()
     in
 

@@ -107,9 +107,9 @@ let init_hmac_secret_from_env () =
   match Sys.getenv_opt "SCTP_HMAC_SECRET" with
   | Some s when String.length s > 0 ->
     set_hmac_secret s;
-    true
-  | Some _ -> failwith "SCTP_HMAC_SECRET is set but empty"
-  | None -> false
+    Ok true
+  | Some _ -> Error "SCTP_HMAC_SECRET is set but empty"
+  | None -> Ok false
 
 (** HMAC-SHA256 for cookie integrity (RFC 4960 §5.1.3) *)
 let compute_hmac data =

@@ -868,11 +868,14 @@ let allocate_request_lwt ~server ?(transport = 17) ?lifetime ?timeout () =
   let timeout_s = Option.value ~default:5.0 timeout in
 
   (* Parse server address *)
-  let (host, port) = match String.split_on_char ':' server with
-    | [h; p] -> (h, int_of_string p)
-    | [h] -> (h, default_port)
-    | _ -> failwith "Invalid TURN server address"
+  let parsed = match String.split_on_char ':' server with
+    | [h; p] -> Some (h, int_of_string p)
+    | [h] -> Some (h, default_port)
+    | _ -> None
   in
+  match parsed with
+  | None -> Lwt.return (Error "Invalid TURN server address")
+  | Some (host, port) ->
 
   (* Create Allocate request *)
   let request = create_allocate_request ~transport ?lifetime () in
@@ -1084,11 +1087,14 @@ let binding_request_lwt ~server ?timeout () =
   let timeout_s = Option.value ~default:3.0 timeout in
 
   (* Parse server address *)
-  let (host, port) = match String.split_on_char ':' server with
-    | [h; p] -> (h, int_of_string p)
-    | [h] -> (h, default_port)
-    | _ -> failwith "Invalid server address"
+  let parsed = match String.split_on_char ':' server with
+    | [h; p] -> Some (h, int_of_string p)
+    | [h] -> Some (h, default_port)
+    | _ -> None
   in
+  match parsed with
+  | None -> Lwt.return (Error "Invalid server address")
+  | Some (host, port) ->
 
   (* Create request *)
   let request = create_binding_request () in
