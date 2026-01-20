@@ -18,7 +18,7 @@ Priority: P0 -> P1 -> P2 in order.
 - [x] Example: `examples/media_loopback.ml` (documented)
 
 ### P0.2 ICE/TURN Stability
-- [ ] ICE: peer-reflexive candidate support
+- [x] ICE: peer-reflexive candidate support
 - [x] ICE: restart flow + SDP attrs (ice-options/restart)
 - [x] TURN: TLS path without blocking threads (timeout-safe)
 - [x] TURN: permission/channel-bind basic flow test

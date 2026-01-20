@@ -630,7 +630,7 @@ let merge_ice_options base extra =
 
 let restart_ice ~session ~ice_ufrag ~ice_pwd ?(ice_options = []) () =
   let combined_options = merge_ice_options session.ice_options ice_options in
-  let update_media m =
+  let update_media (m : media) =
     let merged = merge_ice_options m.ice_options combined_options in
     { m with
       ice_ufrag = Some ice_ufrag;
@@ -638,13 +638,15 @@ let restart_ice ~session ~ice_ufrag ~ice_pwd ?(ice_options = []) () =
       ice_options = merged;
     }
   in
+  let session_media = session.media in
+  let media = List.map update_media session_media in
   {
     session with
     origin = { session.origin with sess_version = Int64.succ session.origin.sess_version };
     ice_ufrag = Some ice_ufrag;
     ice_pwd = Some ice_pwd;
     ice_options = combined_options;
-    media = List.map update_media session.media;
+    media;
   }
 
 let add_candidate session candidate ~media_index =

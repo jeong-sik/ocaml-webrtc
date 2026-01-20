@@ -996,11 +996,11 @@ let connect_tcp_with_timeout ~host ~port ~timeout_s =
   let rec try_addrs last_error = function
     | [] ->
       Error (Option.value ~default:"Could not resolve TURN server address" last_error)
-    | addr :: rest ->
+    | (addr : Unix.addr_info) :: rest ->
       let sock = Unix.socket addr.ai_family addr.ai_socktype addr.ai_protocol in
       let connect_result =
         try
-          Unix.set_nonblock sock true;
+          Unix.set_nonblock sock;
           match Unix.connect sock addr.ai_addr with
           | () -> Ok ()
           | exception Unix.Unix_error (Unix.EINPROGRESS, _, _) ->
@@ -1021,7 +1021,7 @@ let connect_tcp_with_timeout ~host ~port ~timeout_s =
       in
       (match connect_result with
        | Ok () ->
-         Unix.set_nonblock sock false;
+         Unix.clear_nonblock sock;
          Ok sock
        | Error msg ->
          Unix.close sock;
@@ -1032,7 +1032,11 @@ let connect_tcp_with_timeout ~host ~port ~timeout_s =
 let tls_client_config ~authenticator host =
   let peer_name =
     match Domain_name.of_string host with
-    | Ok dn -> Some (Domain_name.host dn)
+    | Ok dn ->
+      begin match Domain_name.host dn with
+      | Ok host_dn -> Some host_dn
+      | Error _ -> None
+      end
     | Error _ -> None
   in
   match Tls.Config.client ~authenticator ?peer_name () with
