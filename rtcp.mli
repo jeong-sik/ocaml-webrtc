@@ -45,10 +45,35 @@ type receiver_report = {
   report_blocks : report_block list;
 }
 
+(** SDES item type (RFC 3550). *)
+type sdes_item_type =
+  | CNAME
+  | NAME
+  | EMAIL
+  | PHONE
+  | LOC
+  | TOOL
+  | NOTE
+  | PRIV
+  | Unknown_item of int
+
+(** SDES item. *)
+type sdes_item = {
+  item_type : sdes_item_type;
+  value : string;
+}
+
+(** SDES chunk. *)
+type sdes_chunk = {
+  ssrc : int32;
+  items : sdes_item list;
+}
+
 (** RTCP packet *)
 type packet =
   | Sender_report of sender_report
   | Receiver_report of receiver_report
+  | Source_description of sdes_chunk list
   | Unknown_packet of packet_type * bytes
 
 (** Encode a single RTCP packet. *)

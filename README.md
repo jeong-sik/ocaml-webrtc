@@ -37,6 +37,7 @@ dune exec ./examples/datachannel.exe           # Full stack demo
 dune exec ./examples/dtls_echo.exe -- server 12345  # DTLS server
 dune exec ./examples/media_loopback.exe -- server 12345  # DTLS-SRTP media server
 dune exec ./examples/media_loopback.exe -- client 127.0.0.1 12345  # DTLS-SRTP media client
+dune exec ./examples/browser_media_smoke.exe -- --public-ip 1.2.3.4 --listen-port 5004  # Browser interop (set WEBRTC_CERT_PEM/WEBRTC_KEY_PEM)
 
 # TURN relay smoke (supports TURN_USERNAME / TURN_PASSWORD if set)
 TURN_SERVER=127.0.0.1:3478 dune exec ./test/turn_relay_smoke.exe
@@ -91,6 +92,17 @@ let () =
     let sdp_cand = Sdp.ice_candidate_of_ice c in
     Printf.printf "a=%s\n" (Sdp.candidate_to_string sdp_cand)
   ) (Ice.get_local_candidates agent)
+```
+
+### Browser Media Interop (DTLS-SRTP)
+```bash
+# Self-signed cert (P-256)
+openssl ecparam -name prime256v1 -genkey -noout -out key.pem
+openssl req -new -x509 -key key.pem -out cert.pem -subj "/CN=ocaml-webrtc" -days 365
+
+# Run server (paste browser offer SDP, then paste answer back)
+WEBRTC_CERT_PEM="$(cat cert.pem)" WEBRTC_KEY_PEM="$(cat key.pem)" \
+  dune exec ./examples/browser_media_smoke.exe -- --public-ip 1.2.3.4 --listen-port 5004
 ```
 
 ### Full WebRTC DataChannel

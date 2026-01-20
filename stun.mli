@@ -188,6 +188,9 @@ val calculate_integrity : message -> key:string -> bytes
     @return true if valid *)
 val verify_integrity : message -> key:string -> bool
 
+(** Add MESSAGE-INTEGRITY attribute to message. *)
+val add_message_integrity : message -> key:string -> message
+
 (** {1 Fingerprint} *)
 
 (** Calculate FINGERPRINT attribute (CRC-32 XOR 0x5354554e).
@@ -199,6 +202,9 @@ val calculate_fingerprint : bytes -> int32
     @param message Message with FINGERPRINT
     @return true if valid *)
 val verify_fingerprint : message -> bool
+
+(** Add FINGERPRINT attribute to message. *)
+val add_fingerprint : message -> message
 
 (** {1 Utilities} *)
 

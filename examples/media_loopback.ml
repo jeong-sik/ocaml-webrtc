@@ -218,6 +218,7 @@ let run_client host port =
         let label = match pkt with
           | Rtcp.Sender_report _ -> "SR"
           | Rtcp.Receiver_report _ -> "RR"
+          | Rtcp.Source_description _ -> "SDES"
           | Rtcp.Unknown_packet _ -> "Unknown"
         in
         Printf.printf "Received SRTCP %s (index=%ld)\n%!" label index

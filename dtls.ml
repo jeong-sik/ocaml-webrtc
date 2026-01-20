@@ -92,12 +92,15 @@ type cipher_suite =
   | TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
   | TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
 
+type srtp_profile = Srtp.profile
+
 type config = {
   is_client : bool;
   certificate : string option;
   private_key : string option;
   verify_peer : bool;
   cipher_suites : cipher_suite list;
+  srtp_profiles : Srtp.profile list;
   mtu : int;
   retransmit_timeout_ms : int;
   max_retransmits : int;
@@ -143,6 +146,7 @@ type t = {
   config : config;
   mutable state : state;
   mutable negotiated_cipher : cipher_suite option;
+  mutable negotiated_srtp_profile : Srtp.profile option;
   mutable peer_certificate : string option;
   mutable epoch : int;
   crypto : crypto_state;
@@ -237,6 +241,22 @@ let alert_description_to_int = function
 let dtls_version_major = 254
 let dtls_version_minor = 253
 
+(** RFC 5764 use_srtp extension type *)
+let use_srtp_extension_type = 0x000e
+
+let srtp_profile_to_id = function
+  | Srtp.SRTP_AES128_CM_HMAC_SHA1_80 -> 0x0001
+  | Srtp.SRTP_AES128_CM_HMAC_SHA1_32 -> 0x0002
+  | Srtp.SRTP_NULL_HMAC_SHA1_80 -> 0x0005
+  | Srtp.SRTP_NULL_HMAC_SHA1_32 -> 0x0006
+
+let srtp_profile_of_id = function
+  | 0x0001 -> Some Srtp.SRTP_AES128_CM_HMAC_SHA1_80
+  | 0x0002 -> Some Srtp.SRTP_AES128_CM_HMAC_SHA1_32
+  | 0x0005 -> Some Srtp.SRTP_NULL_HMAC_SHA1_80
+  | 0x0006 -> Some Srtp.SRTP_NULL_HMAC_SHA1_32
+  | _ -> None
+
 (** {1 Default Configuration} *)
 
 let default_client_config = {
@@ -248,6 +268,7 @@ let default_client_config = {
     TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256;
     TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256;
   ];
+  srtp_profiles = [];
   mtu = 1400;
   retransmit_timeout_ms = 1000;
   max_retransmits = 5;
@@ -262,6 +283,7 @@ let default_server_config = {
     TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256;
     TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256;
   ];
+  srtp_profiles = [];
   mtu = 1400;
   retransmit_timeout_ms = 1000;
   max_retransmits = 5;
@@ -273,6 +295,7 @@ let create config = {
   config;
   state = Initial;
   negotiated_cipher = None;
+  negotiated_srtp_profile = None;
   peer_certificate = None;
   epoch = 0;
   crypto = {
@@ -513,6 +536,80 @@ let build_handshake_header msg_type length msg_seq frag_offset frag_length =
   Bytes.set_uint16_be buf 10 (frag_length land 0xFFFF);
   buf
 
+let build_use_srtp_extension profiles =
+  match profiles with
+  | [] -> Bytes.empty
+  | _ ->
+    let profile_ids = List.map srtp_profile_to_id profiles in
+    let profile_list_len = List.length profile_ids * 2 in
+    let ext_len = 2 + profile_list_len + 1 in
+    let ext = Bytes.create (4 + ext_len) in
+    Bytes.set_uint16_be ext 0 use_srtp_extension_type;
+    Bytes.set_uint16_be ext 2 ext_len;
+    Bytes.set_uint16_be ext 4 profile_list_len;
+    let pos = ref 6 in
+    List.iter (fun profile_id ->
+      Bytes.set_uint16_be ext !pos profile_id;
+      pos := !pos + 2
+    ) profile_ids;
+    Bytes.set_uint8 ext !pos 0;  (* MKI length = 0 *)
+    ext
+
+let build_extensions profiles =
+  let use_srtp = build_use_srtp_extension profiles in
+  if Bytes.length use_srtp = 0 then Bytes.empty else use_srtp
+
+let parse_use_srtp_extension data =
+  if Bytes.length data < 3 then
+    []
+  else
+    let profile_len = Bytes.get_uint16_be data 0 in
+    if profile_len mod 2 <> 0 || Bytes.length data < 2 + profile_len + 1 then
+      []
+    else
+      let profiles = ref [] in
+      let pos = ref 2 in
+      while !pos < 2 + profile_len do
+        let id = Bytes.get_uint16_be data !pos in
+        begin match srtp_profile_of_id id with
+        | Some profile -> profiles := profile :: !profiles
+        | None -> ()
+        end;
+        pos := !pos + 2
+      done;
+      List.rev !profiles
+
+let parse_extensions data =
+  let len = Bytes.length data in
+  let rec loop off profiles =
+    if off = len then
+      profiles
+    else if off + 4 > len then
+      profiles
+    else
+      let ext_type = Bytes.get_uint16_be data off in
+      let ext_len = Bytes.get_uint16_be data (off + 2) in
+      let next = off + 4 + ext_len in
+      if next > len then
+        profiles
+      else
+        let ext_data = Bytes.sub data (off + 4) ext_len in
+        let profiles =
+          if ext_type = use_srtp_extension_type then
+            parse_use_srtp_extension ext_data
+          else
+            profiles
+        in
+        loop next profiles
+  in
+  loop 0 []
+
+let select_srtp_profile local_profiles remote_profiles =
+  if local_profiles = [] then
+    None
+  else
+    List.find_opt (fun profile -> List.mem profile remote_profiles) local_profiles
+
 let build_client_hello t =
   (* Reuse existing client_random if present (for HelloVerifyRequest retry) *)
   let client_random = match t.handshake.client_random with
@@ -536,8 +633,13 @@ let build_client_hello t =
   let cookie_len = Bytes.length cookie in
   let num_suites = List.length t.config.cipher_suites in
 
+  let extensions = build_extensions t.config.srtp_profiles in
+  let extensions_len = Bytes.length extensions in
+
   (* Calculate body size *)
-  let body_len = 2 + 32 + 1 + 1 + cookie_len + 2 + (num_suites * 2) + 1 + 1 + 2 in
+  let body_len =
+    2 + 32 + 1 + 1 + cookie_len + 2 + (num_suites * 2) + 1 + 1 + 2 + extensions_len
+  in
   let body = Bytes.create body_len in
   let pos = ref 0 in
 
@@ -570,8 +672,11 @@ let build_client_hello t =
   Bytes.set_uint8 body !pos 1; incr pos;
   Bytes.set_uint8 body !pos 0; incr pos;
 
-  (* Extensions (empty for now) *)
-  Bytes.set_uint16_be body !pos 0;
+  (* Extensions *)
+  Bytes.set_uint16_be body !pos extensions_len;
+  pos := !pos + 2;
+  if extensions_len > 0 then
+    Bytes.blit extensions 0 body !pos extensions_len;
 
   let msg_seq = t.handshake.message_seq in
   t.handshake.message_seq <- msg_seq + 1;
@@ -649,6 +754,18 @@ let handle_server_hello t data =
       | None -> Error "Unsupported cipher suite"
       | Some suite ->
         t.negotiated_cipher <- Some suite;
+        let ext_pos = offset + 3 in
+        if Bytes.length data >= ext_pos + 2 then begin
+          let ext_len = Bytes.get_uint16_be data ext_pos in
+          if Bytes.length data >= ext_pos + 2 + ext_len then begin
+            let ext_data = Bytes.sub data (ext_pos + 2) ext_len in
+            let srtp_profiles = parse_extensions ext_data in
+            begin match srtp_profiles with
+            | profile :: _ -> t.negotiated_srtp_profile <- Some profile
+            | [] -> ()
+            end
+          end
+        end;
         t.state <- ServerHelloReceived;
         Result.Ok ([], None)
     end
@@ -671,20 +788,36 @@ let handle_certificate t data =
 
 (** Handle ServerKeyExchange - parse ECDHE parameters (RFC 8422) *)
 let handle_server_key_exchange t data =
-  let data_cs = Cstruct.of_bytes data in
-  match Ecdhe.parse_server_ecdh_params data_cs with
-  | Error e -> Result.Error (Printf.sprintf "ServerKeyExchange parse error: %s" e)
-  | Ok (curve, server_pub) ->
-    (* Store server's ECDHE public key *)
-    t.handshake.selected_curve <- Some curve;
-    t.handshake.server_public_key <- Some server_pub;
-    (* Generate our ECDHE key pair *)
-    begin match Ecdhe.generate ~curve with
-    | Error e -> Result.Error (Printf.sprintf "ECDHE key generation failed: %s" e)
-    | Ok keypair ->
-      t.handshake.ecdhe_keypair <- Some keypair;
-      Result.Ok ([], None)
-    end
+  if Bytes.length data < 4 then
+    Result.Error "ServerKeyExchange too short"
+  else
+    let curve_type = Bytes.get_uint8 data 0 in
+    if curve_type <> 3 then
+      Result.Error (Printf.sprintf "Unsupported curve type: %d (expected named_curve=3)" curve_type)
+    else
+      let curve_id = Bytes.get_uint16_be data 1 in
+      match Ecdhe.named_curve_of_int curve_id with
+      | None -> Result.Error (Printf.sprintf "Unsupported named curve: %d" curve_id)
+      | Some curve ->
+        let pub_len = Bytes.get_uint8 data 3 in
+        if Bytes.length data < 4 + pub_len then
+          Result.Error "ServerKeyExchange public key truncated"
+        else
+          let pub_bytes = Bytes.sub data 3 (1 + pub_len) in
+          begin match Ecdhe.decode_public_key ~curve (Cstruct.of_bytes pub_bytes) with
+          | Error e -> Result.Error (Printf.sprintf "ServerKeyExchange parse error: %s" e)
+          | Ok server_pub ->
+            (* Store server's ECDHE public key *)
+            t.handshake.selected_curve <- Some curve;
+            t.handshake.server_public_key <- Some server_pub;
+            (* Generate our ECDHE key pair *)
+            begin match Ecdhe.generate ~curve with
+            | Error e -> Result.Error (Printf.sprintf "ECDHE key generation failed: %s" e)
+            | Ok keypair ->
+              t.handshake.ecdhe_keypair <- Some keypair;
+              Result.Ok ([], None)
+            end
+          end
 
 (** Handle ServerHelloDone - complete ECDHE key exchange and send client flight *)
 let rec handle_server_hello_done t _data =
@@ -801,6 +934,7 @@ and build_client_flight t keypair =
 
   let finished_header = build_handshake_header Finished 12 msg_seq 0 12 in
   let finished_data = Bytes.cat finished_header finished_body in
+  t.handshake.handshake_messages <- finished_data :: t.handshake.handshake_messages;
 
   (* After ChangeCipherSpec, all records must be encrypted (RFC 6347) *)
   let record3 =
@@ -822,16 +956,24 @@ and build_client_flight t keypair =
 
   Result.Ok ([record1; record2; record3], None)
 
-let handle_finished t data =
+let handle_finished t payload =
   (* RFC 5246 Section 7.4.9: Verify server's Finished message *)
   (* Finished body is 12 bytes of verify_data after handshake header *)
-  let data_len = Bytes.length data in
+  let data_len = Bytes.length payload in
   if data_len < handshake_header_size + 12 then begin
     (* Data too short - skip verification in testing mode *)
     t.state <- Established;
     Result.Ok ([], None)
   end else
-  let received_verify_data = Bytes.sub data handshake_header_size 12 in
+  let body_len =
+    (Bytes.get_uint8 payload 1 lsl 16) lor
+    (Bytes.get_uint16_be payload 2)
+  in
+  if data_len < handshake_header_size + body_len || body_len < 12 then begin
+    t.state <- Established;
+    Result.Ok ([], None)
+  end else
+  let received_verify_data = Bytes.sub payload handshake_header_size 12 in
 
   (* Compute expected verify_data *)
   let verification_result =
@@ -858,6 +1000,7 @@ let handle_finished t data =
 
   match verification_result with
   | Ok () ->
+    t.handshake.handshake_messages <- payload :: t.handshake.handshake_messages;
     t.state <- Established;
     Result.Ok ([], None)
   | Error msg ->
@@ -952,7 +1095,32 @@ let parse_client_hello data =
               ) in
               pos := !pos + suites_len;
 
-              Result.Ok (client_random, cookie, Array.to_list cipher_suites)
+              (* Compression methods *)
+              if !pos >= len then
+                Result.Error "ClientHello missing compression methods"
+              else begin
+                let comp_len = Bytes.get_uint8 data !pos in
+                pos := !pos + 1;
+                if !pos + comp_len > len then
+                  Result.Error "ClientHello compression methods truncated"
+                else begin
+                  pos := !pos + comp_len;
+
+                  (* Extensions *)
+                  if !pos + 2 > len then
+                    Result.Ok (client_random, cookie, Array.to_list cipher_suites, [])
+                  else begin
+                    let ext_len = Bytes.get_uint16_be data !pos in
+                    pos := !pos + 2;
+                    if !pos + ext_len > len then
+                      Result.Error "ClientHello extensions truncated"
+                    else
+                      let ext_data = Bytes.sub data !pos ext_len in
+                      let srtp_profiles = parse_extensions ext_data in
+                      Result.Ok (client_random, cookie, Array.to_list cipher_suites, srtp_profiles)
+                  end
+                end
+              end
             end
           end
         end
@@ -999,13 +1167,20 @@ let build_hello_verify_request t ~cookie =
     - cipher_suite: 2 bytes
     - compression_method: 1 byte
     - extensions_length: 2 bytes + extensions *)
-let build_server_hello t ~cipher_suite =
+let build_server_hello t ~cipher_suite ~srtp_profile =
   let server_random = random_bytes 32 in
   t.handshake.server_random <- Some server_random;
   t.negotiated_cipher <- Some cipher_suite;
 
-  (* Body: 2 + 32 + 1 + 2 + 1 + 2 = 40 bytes *)
-  let body_len = 40 in
+  let extensions =
+    match srtp_profile with
+    | None -> Bytes.empty
+    | Some profile -> build_use_srtp_extension [profile]
+  in
+  let extensions_len = Bytes.length extensions in
+
+  (* Body: 2 + 32 + 1 + 2 + 1 + 2 + extensions_len *)
+  let body_len = 40 + extensions_len in
   let body = Bytes.create body_len in
   let pos = ref 0 in
 
@@ -1027,8 +1202,11 @@ let build_server_hello t ~cipher_suite =
   (* Compression method (null) *)
   Bytes.set_uint8 body !pos 0; incr pos;
 
-  (* Extensions (empty) *)
-  Bytes.set_uint16_be body !pos 0;
+  (* Extensions *)
+  Bytes.set_uint16_be body !pos extensions_len;
+  pos := !pos + 2;
+  if extensions_len > 0 then
+    Bytes.blit extensions 0 body !pos extensions_len;
 
   let msg_seq = t.handshake.message_seq in
   t.handshake.message_seq <- msg_seq + 1;
@@ -1045,6 +1223,45 @@ let build_server_hello t ~cipher_suite =
 
   Bytes.cat record_header handshake_data
 
+(** Build Certificate message from PEM-encoded chain. *)
+let build_certificate t pem =
+  match X509.Certificate.decode_pem_multiple pem with
+  | Error (`Msg msg) ->
+    Result.Error (Printf.sprintf "Certificate decode failed: %s" msg)
+  | Ok [] ->
+    Result.Error "Certificate chain is empty"
+  | Ok certs ->
+    let certs_der = List.map X509.Certificate.encode_der certs in
+    let certs_bytes = List.map Bytes.of_string certs_der in
+    let total_len =
+      List.fold_left (fun acc cert -> acc + 3 + Bytes.length cert) 0 certs_bytes
+    in
+    let body_len = 3 + total_len in
+    let body = Bytes.create body_len in
+    Bytes.set_uint8 body 0 ((total_len lsr 16) land 0xFF);
+    Bytes.set_uint16_be body 1 (total_len land 0xFFFF);
+    let pos = ref 3 in
+    List.iter (fun cert ->
+      let len = Bytes.length cert in
+      Bytes.set_uint8 body !pos ((len lsr 16) land 0xFF);
+      Bytes.set_uint16_be body (!pos + 1) (len land 0xFFFF);
+      Bytes.blit cert 0 body (!pos + 3) len;
+      pos := !pos + 3 + len
+    ) certs_bytes;
+
+    let msg_seq = t.handshake.message_seq in
+    t.handshake.message_seq <- msg_seq + 1;
+
+    let header = build_handshake_header Certificate body_len msg_seq 0 body_len in
+    let handshake_data = Bytes.cat header body in
+    t.handshake.handshake_messages <- handshake_data :: t.handshake.handshake_messages;
+
+    let record_header =
+      build_record_header Handshake t.epoch t.crypto.write_seq_num (Bytes.length handshake_data)
+    in
+    t.crypto.write_seq_num <- Int64.add t.crypto.write_seq_num 1L;
+    Result.Ok (Bytes.cat record_header handshake_data)
+
 (** Build ServerKeyExchange for ECDHE (RFC 8422).
     ServerKeyExchange structure for ECDHE:
     - curve_type: 1 byte (3 = named_curve)
@@ -1059,24 +1276,60 @@ let build_server_key_exchange t =
     t.handshake.ecdhe_keypair <- Some keypair;
     t.handshake.selected_curve <- Some Ecdhe.Secp256r1;
 
-    (* Use encode_public_key which already adds length prefix *)
-    let pub_key_encoded = Ecdhe.encode_public_key keypair in
-    let pub_key_bytes = Cstruct.to_bytes pub_key_encoded in
-    let pub_key_len = Bytes.length pub_key_bytes in
+    let params = Ecdhe.build_server_ecdh_params keypair in
+    let params_bytes = Cstruct.to_bytes params in
 
-    (* Body: curve_type (1) + named_curve (2) + pub_key_with_length (already has length prefix) *)
-    let body_len = 1 + 2 + pub_key_len in
-    let body = Bytes.create body_len in
-    let pos = ref 0 in
-
-    (* curve_type = named_curve (3) *)
-    Bytes.set_uint8 body !pos 3; incr pos;
-
-    (* named_curve = secp256r1 (23) *)
-    Bytes.set_uint16_be body !pos 23; pos := !pos + 2;
-
-    (* Public key (already length-prefixed by encode_public_key) *)
-    Bytes.blit pub_key_bytes 0 body !pos pub_key_len;
+    let signature_block =
+      match t.config.certificate, t.config.private_key with
+      | Some _, Some pem ->
+        begin match t.handshake.client_random, t.handshake.server_random with
+        | Some client_random, Some server_random ->
+          let input = Bytes.concat Bytes.empty [client_random; server_random; params_bytes] in
+          begin match X509.Private_key.decode_pem pem with
+          | Error (`Msg msg) ->
+            Result.Error (Printf.sprintf "Private key decode failed: %s" msg)
+          | Ok key ->
+            let scheme =
+              match X509.Private_key.key_type key with
+              | `RSA -> Ok (`RSA_PKCS1, 1)
+              | `P256 | `P384 | `P521 -> Ok (`ECDSA, 3)
+              | `ED25519 -> Error "ED25519 is not supported for DTLS 1.2 signatures"
+            in
+            begin match scheme with
+            | Error msg -> Result.Error msg
+            | Ok (scheme, sig_alg_id) ->
+              begin match X509.Private_key.sign `SHA256 ~scheme key (`Message (Bytes.to_string input)) with
+              | Error (`Msg msg) ->
+                Result.Error (Printf.sprintf "ServerKeyExchange signature failed: %s" msg)
+              | Ok sig_bytes ->
+                let sig_len = String.length sig_bytes in
+                let block = Bytes.create (2 + 2 + sig_len) in
+                Bytes.set_uint8 block 0 4;  (* SHA-256 *)
+                Bytes.set_uint8 block 1 sig_alg_id;
+                Bytes.set_uint16_be block 2 sig_len;
+                Bytes.blit_string sig_bytes 0 block 4 sig_len;
+                Result.Ok (Some block)
+              end
+            end
+          end
+        | _ ->
+          Result.Error "Missing client_random or server_random for signature"
+        end
+      | _ -> Result.Ok None
+    in
+    begin match signature_block with
+    | Error _ as err -> err
+    | Ok signature_opt ->
+      let body_len =
+        Bytes.length params_bytes + (match signature_opt with None -> 0 | Some b -> Bytes.length b)
+      in
+      let body = Bytes.create body_len in
+      Bytes.blit params_bytes 0 body 0 (Bytes.length params_bytes);
+      begin match signature_opt with
+      | None -> ()
+      | Some sig_block ->
+        Bytes.blit sig_block 0 body (Bytes.length params_bytes) (Bytes.length sig_block)
+      end;
 
     let msg_seq = t.handshake.message_seq in
     t.handshake.message_seq <- msg_seq + 1;
@@ -1092,6 +1345,7 @@ let build_server_key_exchange t =
     t.crypto.write_seq_num <- Int64.add t.crypto.write_seq_num 1L;
 
     Result.Ok (Bytes.cat record_header handshake_data)
+    end
 
 (** Build ServerHelloDone message (empty body) *)
 let build_server_hello_done t =
@@ -1111,20 +1365,14 @@ let build_server_hello_done t =
 
 (** Handle ClientHello as server.
     Implements RFC 6347 Section 4.2.1 cookie exchange for DoS protection. *)
-let handle_client_hello t data ~client_addr =
+let handle_client_hello t ~payload ~body ~client_addr =
   if t.config.is_client then
     Result.Error "Cannot handle ClientHello as client"
   else
-    match parse_client_hello data with
+    match parse_client_hello body with
     | Result.Error e -> Result.Error e
-    | Result.Ok (client_random, cookie_opt, client_cipher_suites) ->
+    | Result.Ok (client_random, cookie_opt, client_cipher_suites, client_srtp_profiles) ->
       t.handshake.client_random <- Some client_random;
-
-      (* Store ClientHello for Finished verification *)
-      let client_hello_len = Bytes.length data in
-      let ch_header = build_handshake_header ClientHello client_hello_len 0 0 client_hello_len in
-      let ch_data = Bytes.cat ch_header data in
-      t.handshake.handshake_messages <- ch_data :: t.handshake.handshake_messages;
 
       (* Check cookie for DoS protection *)
       match cookie_opt with
@@ -1141,6 +1389,7 @@ let handle_client_hello t data ~client_addr =
           Result.Error "Invalid cookie"
         else begin
           t.state <- ClientHelloReceived;
+          t.handshake.handshake_messages <- payload :: t.handshake.handshake_messages;
 
           (* Select cipher suite (first common one) *)
           let common_cipher = List.find_opt (fun suite ->
@@ -1150,15 +1399,43 @@ let handle_client_hello t data ~client_addr =
           match common_cipher with
           | None -> Result.Error "No common cipher suite"
           | Some cipher_suite ->
-            (* Build server flight: ServerHello + ServerKeyExchange + ServerHelloDone *)
-            let server_hello = build_server_hello t ~cipher_suite in
+            let selected_srtp = select_srtp_profile t.config.srtp_profiles client_srtp_profiles in
+            if t.config.srtp_profiles <> [] && selected_srtp = None then
+              Result.Error "No common SRTP profile"
+            else begin
+              t.negotiated_srtp_profile <- selected_srtp;
 
-            match build_server_key_exchange t with
-            | Result.Error e -> Result.Error e
-            | Result.Ok server_key_exchange ->
-              let server_hello_done = build_server_hello_done t in
-              t.state <- ServerFlightSent;
-              Result.Ok ([server_hello; server_key_exchange; server_hello_done], None)
+              let has_cert = Option.is_some t.config.certificate in
+              let has_key = Option.is_some t.config.private_key in
+              if has_cert <> has_key then
+                Result.Error "DTLS certificate and private key must both be set"
+              else
+              (* Build server flight: ServerHello + Certificate + ServerKeyExchange + ServerHelloDone *)
+              let server_hello = build_server_hello t ~cipher_suite ~srtp_profile:selected_srtp in
+              let certificate =
+                match t.config.certificate with
+                | None -> Ok None
+                | Some pem ->
+                  begin match build_certificate t pem with
+                  | Ok cert -> Ok (Some cert)
+                  | Error e -> Error e
+                  end
+              in
+              match certificate with
+              | Error e -> Result.Error e
+              | Ok certificate_opt ->
+                match build_server_key_exchange t with
+                | Result.Error e -> Result.Error e
+                | Result.Ok server_key_exchange ->
+                  let server_hello_done = build_server_hello_done t in
+                  let flight =
+                    match certificate_opt with
+                    | Some cert -> [server_hello; cert; server_key_exchange; server_hello_done]
+                    | None -> [server_hello; server_key_exchange; server_hello_done]
+                  in
+                  t.state <- ServerFlightSent;
+                  Result.Ok (flight, None)
+            end
         end
 
 (** Handle ClientKeyExchange as server (ECDHE).
@@ -1175,12 +1452,6 @@ let handle_client_key_exchange t data =
     else begin
       let client_pub_bytes = Bytes.sub data 1 pub_len in
       let client_pub_cs = Cstruct.of_bytes client_pub_bytes in
-
-      (* Store ClientKeyExchange for Finished verification *)
-      let cke_header = build_handshake_header ClientKeyExchange (Bytes.length data) t.handshake.next_receive_seq 0 (Bytes.length data) in
-      let cke_data = Bytes.cat cke_header data in
-      t.handshake.handshake_messages <- cke_data :: t.handshake.handshake_messages;
-      t.handshake.next_receive_seq <- t.handshake.next_receive_seq + 1;
 
       match t.handshake.ecdhe_keypair with
       | None -> Result.Error "Server ECDHE keypair not initialized"
@@ -1279,16 +1550,24 @@ let build_server_finished t =
   [record_ccs; record_finished]
 
 (** Handle Finished message as server - verify client's Finished and send our own *)
-let handle_finished_as_server t data =
+let handle_finished_as_server t payload =
   (* RFC 5246 Section 7.4.9: Verify client's Finished message *)
   (* Finished body is 12 bytes of verify_data after handshake header *)
-  let data_len = Bytes.length data in
+  let data_len = Bytes.length payload in
   if data_len < handshake_header_size + 12 then begin
     (* Data too short - skip verification in testing mode *)
     let response = build_server_finished t in
     Result.Ok (response, None)
   end else
-  let received_verify_data = Bytes.sub data handshake_header_size 12 in
+  let body_len =
+    (Bytes.get_uint8 payload 1 lsl 16) lor
+    (Bytes.get_uint16_be payload 2)
+  in
+  if data_len < handshake_header_size + body_len || body_len < 12 then begin
+    let response = build_server_finished t in
+    Result.Ok (response, None)
+  end else
+  let received_verify_data = Bytes.sub payload handshake_header_size 12 in
 
   (* Compute expected verify_data for client *)
   let verification_result =
@@ -1315,6 +1594,7 @@ let handle_finished_as_server t data =
 
   match verification_result with
   | Ok () ->
+    t.handshake.handshake_messages <- payload :: t.handshake.handshake_messages;
     let response = build_server_finished t in
     Result.Ok (response, None)
   | Error msg ->
@@ -1328,12 +1608,17 @@ let handle_handshake_message t msg_type data =
   | Certificate when t.config.is_client -> handle_certificate t data
   | ServerKeyExchange when t.config.is_client -> handle_server_key_exchange t data
   | ServerHelloDone when t.config.is_client -> handle_server_hello_done t data
-  | Finished when t.config.is_client -> handle_finished t data
   (* Server-side handlers *)
   | ClientKeyExchange when not t.config.is_client -> handle_client_key_exchange t data
-  | Finished when not t.config.is_client -> handle_finished_as_server t data
   (* ClientHello requires client_addr, handled separately in handle_record_as_server *)
   | _ -> Result.Error (Printf.sprintf "Unexpected handshake message type")
+
+let record_handshake_message t msg_type payload =
+  match msg_type with
+  | HelloVerifyRequest
+  | Finished -> ()
+  | _ ->
+    t.handshake.handshake_messages <- payload :: t.handshake.handshake_messages
 
 let handle_record t data =
   match parse_record_header data with
@@ -1366,7 +1651,15 @@ let handle_record t data =
               (Bytes.get_uint16_be payload 2)
             in
             let body = Bytes.sub payload handshake_header_size body_len in
-            handle_handshake_message t msg_type body
+            if msg_type = Finished then
+              if t.config.is_client then
+                handle_finished t payload
+              else
+                handle_finished_as_server t payload
+            else begin
+              record_handshake_message t msg_type payload;
+              handle_handshake_message t msg_type body
+            end
         end
       | ChangeCipherSpec ->
         t.epoch <- t.epoch + 1;
@@ -1425,8 +1718,11 @@ let handle_record_as_server t data ~client_addr =
             let body = Bytes.sub payload handshake_header_size body_len in
             (* Special handling for ClientHello which needs client_addr *)
             match msg_type with
-            | ClientHello -> handle_client_hello t body ~client_addr
-            | _ -> handle_handshake_message t msg_type body
+            | ClientHello -> handle_client_hello t ~payload ~body ~client_addr
+            | Finished -> handle_finished_as_server t payload
+            | _ ->
+              record_handshake_message t msg_type payload;
+              handle_handshake_message t msg_type body
         end
       | ChangeCipherSpec ->
         t.epoch <- t.epoch + 1;
@@ -1663,6 +1959,8 @@ let close t =
 let get_cipher_suite t = t.negotiated_cipher
 
 let get_peer_certificate t = t.peer_certificate
+
+let get_srtp_profile t = t.negotiated_srtp_profile
 
 let pp_state fmt = function
   (* Common states *)

@@ -92,6 +92,9 @@ type cipher_suite =
   | TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384  (** 0xC02C *)
   | TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384    (** 0xC030 *)
 
+(** SRTP profiles negotiated via use_srtp extension (RFC 5764). *)
+type srtp_profile = Srtp.profile
+
 (** DTLS configuration *)
 type config = {
   is_client : bool;
@@ -99,6 +102,7 @@ type config = {
   private_key : string option;      (** PEM encoded *)
   verify_peer : bool;
   cipher_suites : cipher_suite list;
+  srtp_profiles : srtp_profile list;  (** Empty disables use_srtp extension *)
   mtu : int;                        (** Maximum transmission unit *)
   retransmit_timeout_ms : int;      (** Initial retransmit timeout *)
   max_retransmits : int;
@@ -167,6 +171,9 @@ val get_cipher_suite : t -> cipher_suite option
 
 (** Get peer certificate if available *)
 val get_peer_certificate : t -> string option
+
+(** Get negotiated SRTP profile if use_srtp was used. *)
+val get_srtp_profile : t -> srtp_profile option
 
 (** Pretty-print state *)
 val pp_state : Format.formatter -> state -> unit

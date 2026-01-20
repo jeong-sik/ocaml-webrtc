@@ -1330,6 +1330,17 @@ let calculate_fingerprint data =
   let crc = crc32 data in
   Int32.logxor crc 0x5354554el  (* XOR with "STUN" *)
 
+let add_fingerprint msg =
+  let attrs = List.filter (fun a -> a.attr_type <> FINGERPRINT) msg.attributes in
+  let msg_without_fp = { msg with attributes = attrs } in
+  let encoded = encode msg_without_fp in
+  let adjusted_len = (get_uint16_be encoded 2) + 8 in
+  set_uint16_be encoded 2 adjusted_len;
+  let fp = calculate_fingerprint encoded in
+  { msg with attributes = attrs @ [
+      { attr_type = FINGERPRINT; value = Fingerprint fp }
+    ] }
+
 let verify_fingerprint msg =
   let rec find_fingerprint = function
     | [] -> None
