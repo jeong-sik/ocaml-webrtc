@@ -50,13 +50,14 @@ let () =
   Ice.on_gathering_complete agent (fun () ->
     Printf.printf "════════════════════════════════════════════════════════════════\n";
     Printf.printf "ICE Gathering Complete!\n";
-    Printf.printf "════════════════════════════════════════════════════════════════\n\n"
+    Printf.printf "════════════════════════════════════════════════════════════════\n";
+    Printf.printf "a=end-of-candidates\n\n"
   );
 
   Printf.printf "Starting candidate gathering...\n\n";
 
-  (* Gather candidates (using Lwt for async operations) *)
-  Lwt_main.run (Ice.gather_candidates agent);
+  (* Gather candidates (host + srflx + relay) *)
+  Lwt_main.run (Ice.gather_candidates_full agent);
 
   (* Get all gathered candidates *)
   let candidates = Ice.get_local_candidates agent in
@@ -69,7 +70,8 @@ let () =
   Printf.printf "SDP Candidate Lines (a=candidate:...):\n";
   Printf.printf "───────────────────────────────────────────────────────────────\n";
   List.iter (fun c ->
-    Printf.printf "%s\n" (Ice.candidate_to_string c)
+    let sdp_cand = Sdp.ice_candidate_of_ice c in
+    Printf.printf "a=%s\n" (Sdp.candidate_to_string sdp_cand)
   ) candidates;
 
   Printf.printf "\n";

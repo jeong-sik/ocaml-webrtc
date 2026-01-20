@@ -35,6 +35,9 @@ dune exec ./examples/stun_client.exe           # Discover public IP
 dune exec ./examples/ice_gathering.exe         # Gather ICE candidates
 dune exec ./examples/datachannel.exe           # Full stack demo
 dune exec ./examples/dtls_echo.exe -- server 12345  # DTLS server
+
+# TURN relay smoke (requires no-auth TURN server)
+TURN_SERVER=127.0.0.1:3478 dune exec ./test/turn_relay_smoke.exe
 ```
 
 ## Examples
@@ -75,12 +78,13 @@ let () =
       (Ice.string_of_candidate_type candidate.cand_type)
   );
 
-  (* Gather candidates (async) *)
-  Lwt_main.run (Ice.gather_candidates agent);
+  (* Gather candidates (host + srflx + relay) *)
+  Lwt_main.run (Ice.gather_candidates_full agent);
 
   (* Get SDP-format candidate lines *)
   List.iter (fun c ->
-    Printf.printf "%s\n" (Ice.candidate_to_string c)
+    let sdp_cand = Sdp.ice_candidate_of_ice c in
+    Printf.printf "a=%s\n" (Sdp.candidate_to_string sdp_cand)
   ) (Ice.get_local_candidates agent)
 ```
 
@@ -178,6 +182,11 @@ dune runtest
 dune exec ./test/dtls_handshake_test.exe   # 16 tests
 dune exec ./test/sctp_core_handshake_test.exe  # 9 tests
 ```
+
+## Compliance
+
+- `docs/RFC-COMPLIANCE.md` - RFC coverage matrix and gap tracking
+- `docs/RFC-TEST-PLAN.md` - RFC test expansion plan (DataChannel + Media)
 
 ## Dependencies
 

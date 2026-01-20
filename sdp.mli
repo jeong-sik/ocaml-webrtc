@@ -186,6 +186,12 @@ val media_to_string : media -> string
 (** Generate ICE candidate attribute line *)
 val candidate_to_string : ice_candidate -> string
 
+(** Convert ICE candidate to SDP candidate (relay/srflx/host). *)
+val ice_candidate_of_ice : Ice.candidate -> ice_candidate
+
+(** Convert SDP candidate to ICE candidate. *)
+val ice_candidate_to_ice : ice_candidate -> (Ice.candidate, string) result
+
 (** {1 Offer/Answer Helpers} *)
 
 (** Create basic offer for DataChannel *)
@@ -206,6 +212,9 @@ val create_answer :
 
 (** Add ICE candidate to session *)
 val add_candidate : session -> ice_candidate -> media_index:int -> session
+
+(** Add ICE candidate to session after conversion to SDP candidate. *)
+val add_candidate_from_ice : session -> Ice.candidate -> media_index:int -> session
 
 (** Get all ICE candidates from session *)
 val get_candidates : session -> ice_candidate list

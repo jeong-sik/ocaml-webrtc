@@ -101,6 +101,7 @@ type input =
   | PacketReceived of bytes       (** Raw packet from network *)
   | TimerFired of timer_id        (** Timer expired *)
   | UserSend of { stream_id: int; data: bytes }  (** User wants to send *)
+  | UserResetStreams of { stream_ids: int list } (** Stream reset (RFC 6525) *)
   | UserClose                     (** User wants to close *)
 
 type output =
