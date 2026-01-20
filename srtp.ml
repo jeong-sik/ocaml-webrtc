@@ -1,221 +1,368 @@
-(** SRTP/SRTCP (RFC 3711) - Minimal AES-CTR + HMAC-SHA1-80 implementation. *)
+(** SRTP (RFC 3711) - AES-CM + HMAC-SHA1 core primitives. *)
 
 open Webrtc_common
 
 type profile =
-  | AES_128_CM_HMAC_SHA1_80
+  | SRTP_AES128_CM_HMAC_SHA1_80
+  | SRTP_AES128_CM_HMAC_SHA1_32
+  | SRTP_NULL_HMAC_SHA1_80
+  | SRTP_NULL_HMAC_SHA1_32
 
-type keying = {
-  master_key : bytes;
-  master_salt : bytes;
+type master = {
+  key : bytes;
+  salt : bytes;
 }
 
-type roc = int32
-
-type context = {
-  profile : profile;
-  ssrc : int32;
-  keying : keying;
-  mutable roc : roc;
-  mutable last_seq : int;
-  mutable srtcp_index : int32;
+type session_keys = {
+  srtp_encryption_key : bytes;
+  srtp_auth_key : bytes;
+  srtp_salt_key : bytes;
+  srtcp_encryption_key : bytes;
+  srtcp_auth_key : bytes;
+  srtcp_salt_key : bytes;
 }
 
-let create ~profile ~keying ~ssrc =
-  if Bytes.length keying.master_key <> 16 then
-    invalid_arg "SRTP master_key must be 16 bytes";
-  if Bytes.length keying.master_salt <> 14 then
-    invalid_arg "SRTP master_salt must be 14 bytes";
-  {
-    profile;
-    ssrc;
-    keying;
-    roc = 0l;
-    last_seq = 0;
-    srtcp_index = 0l;
-  }
+type params = {
+  cipher_key_len : int;
+  cipher_salt_len : int;
+  auth_key_len : int;
+  srtp_auth_tag_len : int;
+  srtcp_auth_tag_len : int;
+}
 
-let srtp_auth_tag_len = 10
+let params_of_profile = function
+  | SRTP_AES128_CM_HMAC_SHA1_80 ->
+    { cipher_key_len = 16; cipher_salt_len = 14; auth_key_len = 20;
+      srtp_auth_tag_len = 10; srtcp_auth_tag_len = 10; }
+  | SRTP_AES128_CM_HMAC_SHA1_32 ->
+    { cipher_key_len = 16; cipher_salt_len = 14; auth_key_len = 20;
+      srtp_auth_tag_len = 4; srtcp_auth_tag_len = 10; }
+  | SRTP_NULL_HMAC_SHA1_80 ->
+    { cipher_key_len = 0; cipher_salt_len = 0; auth_key_len = 20;
+      srtp_auth_tag_len = 10; srtcp_auth_tag_len = 10; }
+  | SRTP_NULL_HMAC_SHA1_32 ->
+    { cipher_key_len = 0; cipher_salt_len = 0; auth_key_len = 20;
+      srtp_auth_tag_len = 4; srtcp_auth_tag_len = 10; }
+
+let xor_into buf off value =
+  let b = Bytes.get_uint8 buf off in
+  Bytes.set_uint8 buf off (b lxor value)
+
+let xor_uint32_be buf off value =
+  for i = 0 to 3 do
+    let shift = (3 - i) * 8 in
+    let byte = Int32.(to_int (shift_right_logical value shift)) land 0xFF in
+    xor_into buf (off + i) byte
+  done
+
+let xor_uint48_be buf off value =
+  for i = 0 to 5 do
+    let shift = (5 - i) * 8 in
+    let byte = Int64.(to_int (shift_right_logical value shift)) land 0xFF in
+    xor_into buf (off + i) byte
+  done
+
+let int64_to_uint48_be value =
+  let buf = Bytes.create 6 in
+  for i = 0 to 5 do
+    let shift = (5 - i) * 8 in
+    let byte = Int64.(to_int (shift_right_logical value shift)) land 0xFF in
+    Bytes.set_uint8 buf i byte
+  done;
+  buf
+
+let derive_key ~master ~label ~key_derivation_rate ~index ~out_len =
+  if out_len < 0 then
+    Error "Invalid output length"
+  else if out_len = 0 then
+    Ok Bytes.empty
+  else if index < 0L || index > 0xFFFFFFFFFFFFL then
+    Error "Index must be 48-bit"
+  else if Bytes.length master.key <> 16
+       && Bytes.length master.key <> 24
+       && Bytes.length master.key <> 32 then
+    Error "Master key length must be 16/24/32 bytes"
+  else if Bytes.length master.salt <> 14 then
+    Error "Master salt length must be 14 bytes"
+  else
+    let r =
+      if key_derivation_rate = 0L then 0L
+      else Int64.div index key_derivation_rate
+    in
+    let key_id = Bytes.create 7 in
+    Bytes.set_uint8 key_id 0 (label land 0xFF);
+    let r_bytes = int64_to_uint48_be r in
+    Bytes.blit r_bytes 0 key_id 1 6;
+
+    (* Right-align key_id (7 bytes) with master_salt (14 bytes). *)
+    let key_id_full = Bytes.make 14 '\x00' in
+    Bytes.blit key_id 0 key_id_full 7 7;
+
+    let x = Bytes.create 14 in
+    for i = 0 to 13 do
+      let v = Bytes.get_uint8 master.salt i lxor Bytes.get_uint8 key_id_full i in
+      Bytes.set_uint8 x i v
+    done;
+
+    (* IV = x * 2^16 => append 2 zero bytes. *)
+    let iv = Bytes.create 16 in
+    Bytes.blit x 0 iv 0 14;
+    Bytes.set_uint8 iv 14 0;
+    Bytes.set_uint8 iv 15 0;
+
+    let key = Mirage_crypto.AES.CTR.of_secret (Bytes.to_string master.key) in
+    let ctr = Mirage_crypto.AES.CTR.ctr_of_octets (Bytes.to_string iv) in
+    let stream = Mirage_crypto.AES.CTR.stream ~key ~ctr out_len in
+    Ok (Bytes.of_string stream)
+
+let derive_session_keys ~profile ~master ~key_derivation_rate ~index =
+  let params = params_of_profile profile in
+  let derive label len =
+    derive_key ~master ~label ~key_derivation_rate ~index ~out_len:len
+  in
+  match derive 0x00 params.cipher_key_len,
+        derive 0x01 params.auth_key_len,
+        derive 0x02 params.cipher_salt_len,
+        derive 0x03 params.cipher_key_len,
+        derive 0x04 params.auth_key_len,
+        derive 0x05 params.cipher_salt_len with
+  | Ok srtp_key, Ok srtp_auth, Ok srtp_salt,
+    Ok srtcp_key, Ok srtcp_auth, Ok srtcp_salt ->
+    Ok {
+      srtp_encryption_key = srtp_key;
+      srtp_auth_key = srtp_auth;
+      srtp_salt_key = srtp_salt;
+      srtcp_encryption_key = srtcp_key;
+      srtcp_auth_key = srtcp_auth;
+      srtcp_salt_key = srtcp_salt;
+    }
+  | Error e, _, _, _, _, _
+  | _, Error e, _, _, _, _
+  | _, _, Error e, _, _, _
+  | _, _, _, Error e, _, _
+  | _, _, _, _, Error e, _
+  | _, _, _, _, _, Error e ->
+    Error e
+
+let srtp_iv ~salt ~ssrc ~index =
+  if Bytes.length salt <> 14 then
+    Error "SRTP salt must be 14 bytes"
+  else if index < 0L || index > 0xFFFFFFFFFFFFL then
+    Error "SRTP index must be 48-bit"
+  else
+    let iv = Bytes.create 16 in
+    Bytes.blit salt 0 iv 0 14;
+    Bytes.set_uint8 iv 14 0;
+    Bytes.set_uint8 iv 15 0;
+    xor_uint32_be iv 4 ssrc;
+    xor_uint48_be iv 8 index;
+    Ok iv
+
+let aes_cm_crypt ~key ~iv ~payload =
+  if Bytes.length iv <> 16 then
+    Error "IV must be 16 bytes"
+  else if Bytes.length key <> 16
+       && Bytes.length key <> 24
+       && Bytes.length key <> 32 then
+    Error "AES-CM key must be 16/24/32 bytes"
+  else if Bytes.length payload = 0 then
+    Ok Bytes.empty
+  else
+    let ctr = Mirage_crypto.AES.CTR.ctr_of_octets (Bytes.to_string iv) in
+    let aes_key = Mirage_crypto.AES.CTR.of_secret (Bytes.to_string key) in
+    let ciphertext = Mirage_crypto.AES.CTR.encrypt ~key:aes_key ~ctr (Bytes.to_string payload) in
+    Ok (Bytes.of_string ciphertext)
 
 let hmac_sha1 ~key ~data =
-  let mac = Digestif.SHA1.hmac_bytes ~key data in
-  Bytes.of_string (Digestif.SHA1.to_raw_string mac)
+  let module H = Digestif.SHA1 in
+  let raw = H.hmac_string ~key:(Bytes.to_string key) (Bytes.to_string data)
+            |> H.to_raw_string in
+  Bytes.of_string raw
 
-let increment_counter ctr =
-  let hi = Bytes.get_uint8 ctr 14 in
-  let lo = Bytes.get_uint8 ctr 15 in
-  let v = ((hi lsl 8) lor lo) + 1 in
-  Bytes.set_uint8 ctr 14 ((v lsr 8) land 0xFF);
-  Bytes.set_uint8 ctr 15 (v land 0xFF)
+let srtp_auth_tag ~auth_key ~packet ~roc ~tag_len =
+  let roc_bytes = Bytes.create 4 in
+  Bytes.set_int32_be roc_bytes 0 roc;
+  let msg = Bytes.cat packet roc_bytes in
+  let full = hmac_sha1 ~key:auth_key ~data:msg in
+  Bytes.sub full 0 tag_len
 
-let aes_cm_prf ~master_key ~master_salt ~label ~index ~len =
-  let counter = Bytes.make 16 '\x00' in
-  Bytes.blit master_salt 0 counter 0 14;
-  let index_buf = Bytes.create 6 in
-  write_uint48_be index_buf 0 index;
-  Bytes.set_uint8 counter 10 ((Bytes.get_uint8 counter 10) lxor (label land 0xFF));
-  for i = 0 to 5 do
-    let pos = 10 + i in
-    Bytes.set_uint8 counter pos
-      ((Bytes.get_uint8 counter pos) lxor (Bytes.get_uint8 index_buf i))
-  done;
-  let key = Mirage_crypto.AES.ECB.of_secret (Bytes.to_string master_key) in
-  let rec loop remaining acc =
-    if remaining <= 0 then
-      Bytes.concat Bytes.empty (List.rev acc)
-    else begin
-      let out = Mirage_crypto.AES.ECB.encrypt ~key (Bytes.to_string counter) in
-      increment_counter counter;
-      loop (remaining - 16) (Bytes.of_string out :: acc)
-    end
-  in
-  let stream = loop len [] in
-  Bytes.sub stream 0 len
+let srtcp_auth_tag ~auth_key ~packet ~tag_len =
+  let full = hmac_sha1 ~key:auth_key ~data:packet in
+  Bytes.sub full 0 tag_len
 
-let derive_keys keying =
-  let master_key = keying.master_key in
-  let master_salt = keying.master_salt in
-  let enc_key = aes_cm_prf ~master_key ~master_salt ~label:0x00 ~index:0L ~len:16 in
-  let auth_key = aes_cm_prf ~master_key ~master_salt ~label:0x01 ~index:0L ~len:20 in
-  let salt_key = aes_cm_prf ~master_key ~master_salt ~label:0x02 ~index:0L ~len:14 in
-  (enc_key, auth_key, salt_key)
-
-let build_iv ~salt_key ~ssrc ~roc ~seq =
-  let iv = Bytes.make 16 '\x00' in
-  Bytes.blit salt_key 0 iv 0 14;
-  let ssrc_be = Bytes.create 4 in
-  write_uint32_be ssrc_be 0 ssrc;
-  let roc_be = Bytes.create 4 in
-  write_uint32_be roc_be 0 roc;
-  let seq_be = Bytes.create 2 in
-  write_uint16_be seq_be 0 seq;
-  for i = 0 to 3 do
-    Bytes.set_uint8 iv (4 + i)
-      ((Bytes.get_uint8 iv (4 + i)) lxor (Bytes.get_uint8 ssrc_be i))
-  done;
-  for i = 0 to 3 do
-    Bytes.set_uint8 iv (10 + i)
-      ((Bytes.get_uint8 iv (10 + i)) lxor (Bytes.get_uint8 roc_be i))
-  done;
-  Bytes.set_uint8 iv 14 ((Bytes.get_uint8 iv 14) lxor (Bytes.get_uint8 seq_be 0));
-  Bytes.set_uint8 iv 15 ((Bytes.get_uint8 iv 15) lxor (Bytes.get_uint8 seq_be 1));
-  iv
-
-let aes_ctr ~key ~iv ~data =
-  let key = Mirage_crypto.AES.CTR.of_secret (Bytes.to_string key) in
-  let ctr = Mirage_crypto.AES.CTR.ctr_of_octets (Bytes.to_string iv) in
-  let data = Bytes.to_string data in
-  Bytes.of_string (Mirage_crypto.AES.CTR.encrypt ~key ~ctr data)
-
-let update_roc ctx seq =
-  if seq < ctx.last_seq && (ctx.last_seq - seq) > 0x8000 then
-    ctx.roc <- Int32.add ctx.roc 1l;
-  ctx.last_seq <- seq
-
-let protect_rtp ctx ~rtp =
-  if Bytes.length rtp < 12 then
-    Error "SRTP: RTP packet too short"
+let constant_time_eq a b =
+  if Bytes.length a <> Bytes.length b then
+    false
   else
-    let (enc_key, auth_key, salt_key) = derive_keys ctx.keying in
-    let pkt_ssrc = read_uint32_be rtp 8 in
-    if pkt_ssrc <> ctx.ssrc then
-      Error "SRTP: SSRC mismatch"
-    else
-    let seq = read_uint16_be rtp 2 in
-    update_roc ctx seq;
-    let roc = ctx.roc in
-    let payload_offset =
-      let cc = Bytes.get_uint8 rtp 0 land 0x0F in
-      let x = (Bytes.get_uint8 rtp 0 land 0x10) <> 0 in
-      let base = 12 + (cc * 4) in
-      if not x then base
-      else
-        let ext_len = read_uint16_be rtp (base + 2) in
-        base + 4 + (ext_len * 4)
+    let diff = ref 0 in
+    for i = 0 to Bytes.length a - 1 do
+      diff := !diff lor (Bytes.get_uint8 a i lxor Bytes.get_uint8 b i)
+    done;
+    !diff = 0
+
+let srtp_index ~roc ~seq =
+  if seq < 0 || seq > 0xFFFF then
+    Error "Sequence must be 16-bit"
+  else
+    let roc64 = Int64.logand (Int64.of_int32 roc) 0xFFFFFFFFL in
+    let idx = Int64.logor (Int64.shift_left roc64 16) (Int64.of_int seq) in
+    Ok idx
+
+let protect_rtp ~profile ~keys ~roc ~packet =
+  let params = params_of_profile profile in
+  let tag_len = params.srtp_auth_tag_len in
+  match Rtp.decode packet with
+  | Error e -> Error e
+  | Ok { Rtp.header; payload } ->
+    let index_result = srtp_index ~roc ~seq:header.sequence in
+    (match index_result with
+     | Error e -> Error e
+     | Ok index ->
+       let payload_result =
+         if params.cipher_key_len = 0 then
+           Ok payload
+         else
+           match srtp_iv ~salt:keys.srtp_salt_key ~ssrc:header.ssrc ~index with
+           | Error e -> Error e
+           | Ok iv ->
+             aes_cm_crypt ~key:keys.srtp_encryption_key ~iv ~payload
+       in
+       match payload_result with
+       | Error e -> Error e
+       | Ok encrypted_payload ->
+         (match Rtp.encode header ~payload:encrypted_payload with
+          | Error e -> Error e
+          | Ok encrypted_packet ->
+            let tag = srtp_auth_tag
+              ~auth_key:keys.srtp_auth_key
+              ~packet:encrypted_packet
+              ~roc
+              ~tag_len
+            in
+            Ok (Bytes.cat encrypted_packet tag)))
+
+let unprotect_rtp ~profile ~keys ~roc ~packet =
+  let params = params_of_profile profile in
+  let tag_len = params.srtp_auth_tag_len in
+  if Bytes.length packet <= tag_len then
+    Error "SRTP packet too short"
+  else
+    let rtp_len = Bytes.length packet - tag_len in
+    let rtp_packet = Bytes.sub packet 0 rtp_len in
+    let tag = Bytes.sub packet rtp_len tag_len in
+    let expected = srtp_auth_tag
+      ~auth_key:keys.srtp_auth_key
+      ~packet:rtp_packet
+      ~roc
+      ~tag_len
     in
-    if payload_offset > Bytes.length rtp then
-      Error "SRTP: RTP header length invalid"
+    if not (constant_time_eq tag expected) then
+      Error "SRTP authentication failed"
     else
-      let payload = Bytes.sub rtp payload_offset (Bytes.length rtp - payload_offset) in
-      let iv = build_iv ~salt_key ~ssrc:ctx.ssrc ~roc ~seq in
-      let encrypted = aes_ctr ~key:enc_key ~iv ~data:payload in
-      let out = Bytes.copy rtp in
-      Bytes.blit encrypted 0 out payload_offset (Bytes.length encrypted);
-      let roc_be = Bytes.create 4 in
-      write_uint32_be roc_be 0 roc;
-      let auth_input = Bytes.cat out roc_be in
-      let tag = hmac_sha1 ~key:(Bytes.to_string auth_key) ~data:auth_input in
-      let tag = Bytes.sub tag 0 srtp_auth_tag_len in
-      Ok (Bytes.cat out tag)
+      match Rtp.decode rtp_packet with
+      | Error e -> Error e
+      | Ok { Rtp.header; payload } ->
+        let index_result = srtp_index ~roc ~seq:header.sequence in
+        (match index_result with
+         | Error e -> Error e
+         | Ok index ->
+           let payload_result =
+             if params.cipher_key_len = 0 then
+               Ok payload
+             else
+               match srtp_iv ~salt:keys.srtp_salt_key ~ssrc:header.ssrc ~index with
+               | Error e -> Error e
+               | Ok iv ->
+                 aes_cm_crypt ~key:keys.srtp_encryption_key ~iv ~payload
+           in
+           match payload_result with
+           | Error e -> Error e
+           | Ok decrypted_payload ->
+             (match Rtp.encode header ~payload:decrypted_payload with
+              | Error e -> Error e
+              | Ok decrypted_packet -> Ok decrypted_packet))
 
-let unprotect_rtp ctx ~rtp =
-  if Bytes.length rtp < 12 + srtp_auth_tag_len then
-    Error "SRTP: RTP packet too short"
+let protect_rtcp ~profile ~keys ~index ~encrypt ~packet =
+  let params = params_of_profile profile in
+  let tag_len = params.srtcp_auth_tag_len in
+  let idx32 = Int32.logand index 0x7FFFFFFFl in
+  if Int32.compare index 0l < 0 || Int32.compare index 0x7FFFFFFFl > 0 then
+    Error "SRTCP index must be 31-bit"
+  else if Bytes.length packet < 8 then
+    Error "RTCP packet too short"
   else
-    let (enc_key, auth_key, salt_key) = derive_keys ctx.keying in
-    let auth_tag_off = Bytes.length rtp - srtp_auth_tag_len in
-    let packet = Bytes.sub rtp 0 auth_tag_off in
-    let recv_tag = Bytes.sub rtp auth_tag_off srtp_auth_tag_len in
-    let pkt_ssrc = read_uint32_be packet 8 in
-    if pkt_ssrc <> ctx.ssrc then
-      Error "SRTP: SSRC mismatch"
-    else
-    let seq = read_uint16_be packet 2 in
-    update_roc ctx seq;
-    let roc = ctx.roc in
-    let roc_be = Bytes.create 4 in
-    write_uint32_be roc_be 0 roc;
-    let auth_input = Bytes.cat packet roc_be in
-    let expected = hmac_sha1 ~key:(Bytes.to_string auth_key) ~data:auth_input in
-    let expected = Bytes.sub expected 0 srtp_auth_tag_len in
-    if not (Bytes.equal expected recv_tag) then
-      Error "SRTP: authentication failed"
-    else
-      let payload_offset =
-        let cc = Bytes.get_uint8 packet 0 land 0x0F in
-        let x = (Bytes.get_uint8 packet 0 land 0x10) <> 0 in
-        let base = 12 + (cc * 4) in
-        if not x then base
-        else
-          let ext_len = read_uint16_be packet (base + 2) in
-          base + 4 + (ext_len * 4)
-      in
-      if payload_offset > Bytes.length packet then
-        Error "SRTP: RTP header length invalid"
+    let ssrc = read_uint32_be packet 4 in
+    let encrypted_result =
+      if (not encrypt) || params.cipher_key_len = 0 then
+        Ok packet
       else
-        let payload = Bytes.sub packet payload_offset (Bytes.length packet - payload_offset) in
-        let iv = build_iv ~salt_key ~ssrc:ctx.ssrc ~roc ~seq in
-        let decrypted = aes_ctr ~key:enc_key ~iv ~data:payload in
-        let out = Bytes.copy packet in
-        Bytes.blit decrypted 0 out payload_offset (Bytes.length decrypted);
-        Ok out
+        let payload_len = Bytes.length packet - 8 in
+        let payload = Bytes.sub packet 8 payload_len in
+        let index64 = Int64.logand (Int64.of_int32 idx32) 0x7FFFFFFFL in
+        match srtp_iv ~salt:keys.srtcp_salt_key ~ssrc ~index:index64 with
+        | Error e -> Error e
+        | Ok iv ->
+          (match aes_cm_crypt ~key:keys.srtcp_encryption_key ~iv ~payload with
+           | Error e -> Error e
+           | Ok encrypted_payload ->
+             let out = Bytes.copy packet in
+             Bytes.blit encrypted_payload 0 out 8 payload_len;
+             Ok out)
+    in
+    match encrypted_result with
+    | Error e -> Error e
+    | Ok encrypted_packet ->
+      let index_field =
+        let v = if encrypt then Int32.logor idx32 0x80000000l else idx32 in
+        let b = Bytes.create 4 in
+        write_uint32_be b 0 v;
+        b
+      in
+      let auth_input = Bytes.cat encrypted_packet index_field in
+      let tag = srtcp_auth_tag
+        ~auth_key:keys.srtcp_auth_key
+        ~packet:auth_input
+        ~tag_len
+      in
+      Ok (Bytes.concat Bytes.empty [encrypted_packet; index_field; tag])
 
-let protect_rtcp ctx ~rtcp =
-  if Bytes.length rtcp < 8 then
-    Error "SRTCP: RTCP packet too short"
+let unprotect_rtcp ~profile ~keys ~packet =
+  let params = params_of_profile profile in
+  let tag_len = params.srtcp_auth_tag_len in
+  if Bytes.length packet < 12 + tag_len then
+    Error "SRTCP packet too short"
   else
-    let (_enc_key, auth_key, _salt_key) = derive_keys ctx.keying in
-    ctx.srtcp_index <- Int32.add ctx.srtcp_index 1l;
-    let index_be = Bytes.create 4 in
-    write_uint32_be index_be 0 ctx.srtcp_index;
-    let data = Bytes.cat rtcp index_be in
-    let tag = hmac_sha1 ~key:(Bytes.to_string auth_key) ~data in
-    let tag = Bytes.sub tag 0 srtp_auth_tag_len in
-    Ok (Bytes.cat data tag)
-
-let unprotect_rtcp ctx ~rtcp =
-  if Bytes.length rtcp < 8 + 4 + srtp_auth_tag_len then
-    Error "SRTCP: RTCP packet too short"
-  else
-    let (_enc_key, auth_key, _salt_key) = derive_keys ctx.keying in
-    let tag_off = Bytes.length rtcp - srtp_auth_tag_len in
-    let data = Bytes.sub rtcp 0 tag_off in
-    let recv_tag = Bytes.sub rtcp tag_off srtp_auth_tag_len in
-    let expected = hmac_sha1 ~key:(Bytes.to_string auth_key) ~data in
-    let expected = Bytes.sub expected 0 srtp_auth_tag_len in
-    if not (Bytes.equal expected recv_tag) then
-      Error "SRTCP: authentication failed"
+    let index_off = Bytes.length packet - tag_len - 4 in
+    let base = Bytes.sub packet 0 index_off in
+    let index_field = Bytes.sub packet index_off 4 in
+    let tag = Bytes.sub packet (index_off + 4) tag_len in
+    let auth_input = Bytes.cat base index_field in
+    let expected = srtcp_auth_tag
+      ~auth_key:keys.srtcp_auth_key
+      ~packet:auth_input
+      ~tag_len
+    in
+    if not (constant_time_eq tag expected) then
+      Error "SRTCP authentication failed"
     else
-      (* Drop SRTCP index (last 4 bytes before tag) *)
-      let payload_len = Bytes.length data - 4 in
-      Ok (Bytes.sub data 0 payload_len)
+      let raw_index = Bytes.get_int32_be index_field 0 in
+      let encrypt = (Bytes.get_uint8 index_field 0 land 0x80) <> 0 in
+      let idx32 = Int32.logand raw_index 0x7FFFFFFFl in
+      if Bytes.length base < 8 then
+        Error "RTCP packet too short"
+      else if (not encrypt) || params.cipher_key_len = 0 then
+        Ok (base, idx32)
+      else
+        let ssrc = read_uint32_be base 4 in
+        let payload_len = Bytes.length base - 8 in
+        let payload = Bytes.sub base 8 payload_len in
+        let index64 = Int64.logand (Int64.of_int32 idx32) 0x7FFFFFFFL in
+        match srtp_iv ~salt:keys.srtcp_salt_key ~ssrc ~index:index64 with
+        | Error e -> Error e
+        | Ok iv ->
+          (match aes_cm_crypt ~key:keys.srtcp_encryption_key ~iv ~payload with
+           | Error e -> Error e
+           | Ok decrypted_payload ->
+             let out = Bytes.copy base in
+             Bytes.blit decrypted_payload 0 out 8 payload_len;
+             Ok (out, idx32))

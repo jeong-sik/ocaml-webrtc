@@ -29,6 +29,7 @@ type input =
   | PacketReceived of bytes                 (** Incoming UDP packet *)
   | TimerFired of timer_id                  (** A timer expired *)
   | UserSend of { stream_id: int; data: bytes }  (** App wants to send *)
+  | UserResetStreams of { stream_ids: int list } (** Request stream reset (RFC 6525) *)
   | UserClose                               (** App requests shutdown *)
 
 (** {1 Output Actions} *)
@@ -112,7 +113,8 @@ type t = {
   config: Sctp.config;
 
   (* Stream sequencing *)
-  mutable next_stream_seq: int;
+  mutable stream_seq: (int, int) Hashtbl.t;
+  mutable reconfig_request_seq: int32;
 
   (* Delayed ACK state (RFC 4960 §6.2) *)
   mutable packets_since_sack: int;
@@ -184,7 +186,8 @@ let create
     handshake_params = None;
     reliable = Sctp_reliable.create ~config ?initial_tsn ();
     config;
-    next_stream_seq = 0;
+    stream_seq = Hashtbl.create 16;
+    reconfig_request_seq = 1l;
     packets_since_sack = 0;
     pending_sack = false;
     heartbeat = Sctp_heartbeat.create ();
@@ -198,6 +201,70 @@ let create
   }
 
 (** {1 Internal Helpers} *)
+
+(** Get next stream sequence number for a stream *)
+let next_stream_seq t stream_id =
+  let current = match Hashtbl.find_opt t.stream_seq stream_id with
+    | Some v -> v
+    | None -> 0
+  in
+  Hashtbl.replace t.stream_seq stream_id (current + 1);
+  current
+
+(** Reset stream sequence number (RFC 6525) *)
+let reset_stream_seq t stream_id =
+  Hashtbl.replace t.stream_seq stream_id 0
+
+(** Build RE-CONFIG packet with given parameters *)
+let build_reconfig_packet t params =
+  let raw = Sctp_reconfig.to_raw_chunk params in
+  let packet = Sctp.encode_packet {
+    Sctp.header = {
+      source_port = t.src_port;
+      dest_port = t.dst_port;
+      verification_tag = t.peer_vtag;
+      checksum = 0l;
+    };
+    chunks = [raw];
+  } in
+  packet
+
+(** Process RE-CONFIG parameters and build responses when needed *)
+let process_reconfig_params t params =
+  let responses = ref [] in
+  List.iter (function
+    | Sctp_reconfig.Outgoing_ssn_reset { request_seq; streams; _ } ->
+      List.iter (reset_stream_seq t) streams;
+      responses := Sctp_reconfig.Reconfig_response {
+        response_seq = request_seq;
+        result = 0l;
+      } :: !responses
+    | Sctp_reconfig.Incoming_ssn_reset { request_seq; streams; _ } ->
+      List.iter (reset_stream_seq t) streams;
+      responses := Sctp_reconfig.Reconfig_response {
+        response_seq = request_seq;
+        result = 0l;
+      } :: !responses
+    | Sctp_reconfig.Add_outgoing_streams { request_seq; _ } ->
+      responses := Sctp_reconfig.Reconfig_response {
+        response_seq = request_seq;
+        result = 0l;
+      } :: !responses
+    | Sctp_reconfig.Add_incoming_streams { request_seq; _ } ->
+      responses := Sctp_reconfig.Reconfig_response {
+        response_seq = request_seq;
+        result = 0l;
+      } :: !responses
+    | Sctp_reconfig.Reconfig_response _ ->
+      ()
+    | Sctp_reconfig.Unknown _ ->
+      ()
+  ) params;
+  match List.rev !responses with
+  | [] -> []
+  | resp_params ->
+    let packet = build_reconfig_packet t resp_params in
+    [SendPacket packet]
 
 (** Process a DATA chunk, return output actions *)
 let process_data_chunk t chunk =
@@ -265,6 +332,7 @@ let process_single_chunk t packet offset =
     ([], packet_len)  (* Not enough for chunk header *)
   else begin
     let chunk_type = Bytes.get packet offset |> Char.code in
+    let chunk_flags = Bytes.get packet (offset + 1) |> Char.code in
     let chunk_len = Bytes.get_uint16_be packet (offset + 2) in
     let padded_len = (chunk_len + 3) land (lnot 3) in  (* 4-byte alignment *)
 
@@ -408,6 +476,14 @@ let process_single_chunk t packet offset =
       | Error _ -> []
       end
 
+    | chunk_type_id when chunk_type_id = Sctp.int_of_chunk_type Sctp.RE_CONFIG ->
+      let value_len = max 0 (Bytes.length chunk_data - 4) in
+      let chunk_value = Bytes.sub chunk_data 4 value_len in
+      let raw = { Sctp.chunk_type; chunk_flags; chunk_length = chunk_len; chunk_value } in
+      (match Sctp_reconfig.of_raw_chunk raw with
+      | Ok params -> process_reconfig_params t params
+      | Error e -> [Error ("RE-CONFIG decode: " ^ e)])
+
     | _ ->
       (* RFC 4960 §3.2 - Handle unknown chunk based on upper 2 bits *)
       let action = Sctp_error.action_for_unknown_chunk chunk_type in
@@ -546,15 +622,15 @@ let queue_user_data t ~stream_id ~data =
 
     (* Fragment if needed *)
     let tsn = Sctp_reliable.alloc_tsn t.reliable in
+    let stream_seq = next_stream_seq t stream_id in
     let chunks = Sctp.fragment_data
       ~data
       ~stream_id
-      ~stream_seq:t.next_stream_seq
+      ~stream_seq
       ~ppid:0x32l
       ~start_tsn:tsn
       ~mtu:t.config.mtu
     in
-    t.next_stream_seq <- t.next_stream_seq + 1;
 
     (* Queue and bundle each chunk *)
     List.iter (fun chunk ->
@@ -701,6 +777,22 @@ let handle t input =
 
   | UserSend { stream_id; data } ->
     queue_user_data t ~stream_id ~data
+
+  | UserResetStreams { stream_ids } ->
+    if t.conn_state <> Established then
+      [Error "RE-CONFIG requires Established state"]
+    else
+      let request_seq = t.reconfig_request_seq in
+      t.reconfig_request_seq <- Int32.succ t.reconfig_request_seq;
+      let last_tsn = Sctp_reliable.get_cumulative_tsn t.reliable in
+      let param = Sctp_reconfig.Outgoing_ssn_reset {
+        request_seq;
+        response_seq = 0l;
+        last_tsn;
+        streams = stream_ids;
+      } in
+      let packet = build_reconfig_packet t [param] in
+      [SendPacket packet]
 
   | UserClose ->
     (* RFC 4960 §9.2: Graceful Shutdown *)

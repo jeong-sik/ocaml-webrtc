@@ -295,6 +295,12 @@ let parse_candidate line =
     | _ -> Error "Invalid candidate values")
   | _ -> Error "Invalid candidate format"
 
+(** Parse ice-options attribute list *)
+let parse_ice_options = function
+  | Some v ->
+    split_on_char ' ' v |> List.filter (fun s -> s <> "")
+  | None -> []
+
 (** {1 Parse Fingerprint} *)
 
 let parse_fingerprint line =
@@ -394,6 +400,9 @@ let parse sdp =
           let m' = match attr_name with
             | "ice-ufrag" -> { m with ice_ufrag = attr_value }
             | "ice-pwd" -> { m with ice_pwd = attr_value }
+            | "ice-options" ->
+              let opts = parse_ice_options attr_value in
+              { m with ice_options = m.ice_options @ opts }
             | "fingerprint" ->
               (match attr_value with
               | Some v -> (match parse_fingerprint v with
@@ -424,6 +433,9 @@ let parse sdp =
             | "ice-lite" -> { session with ice_lite = true }
             | "ice-ufrag" -> { session with ice_ufrag = attr_value }
             | "ice-pwd" -> { session with ice_pwd = attr_value }
+            | "ice-options" ->
+              let opts = parse_ice_options attr_value in
+              { session with ice_options = session.ice_options @ opts }
             | "fingerprint" ->
               (match attr_value with
               | Some v -> (match parse_fingerprint v with
@@ -461,6 +473,11 @@ let parse_media sdp =
 let rec to_string session =
   let buf = Buffer.create 1024 in
   let add s = Buffer.add_string buf s; Buffer.add_char buf '\n' in
+  let add_attr name value =
+    match value with
+    | None -> add (Printf.sprintf "a=%s" name)
+    | Some v -> add (Printf.sprintf "a=%s:%s" name v)
+  in
 
   add (Printf.sprintf "v=%d" session.version);
   add (Printf.sprintf "o=%s %s %Ld IN %s %s"
@@ -482,11 +499,15 @@ let rec to_string session =
   if session.ice_lite then add "a=ice-lite";
   Option.iter (fun v -> add (Printf.sprintf "a=ice-ufrag:%s" v)) session.ice_ufrag;
   Option.iter (fun v -> add (Printf.sprintf "a=ice-pwd:%s" v)) session.ice_pwd;
+  if session.ice_options <> [] then
+    add (Printf.sprintf "a=ice-options:%s" (String.concat " " session.ice_options));
   Option.iter (fun fp -> add (Printf.sprintf "a=fingerprint:%s %s" fp.hash_func fp.fingerprint)) session.fingerprint;
 
   List.iter (fun (sem, ids) ->
     add (Printf.sprintf "a=group:%s %s" sem (String.concat " " ids))
   ) session.groups;
+
+  List.iter (fun (name, value) -> add_attr name value) session.other_attrs;
 
   List.iter (fun m ->
     add (Printf.sprintf "m=%s %d %s %s"
@@ -501,6 +522,8 @@ let rec to_string session =
 
     Option.iter (fun v -> add (Printf.sprintf "a=ice-ufrag:%s" v)) m.ice_ufrag;
     Option.iter (fun v -> add (Printf.sprintf "a=ice-pwd:%s" v)) m.ice_pwd;
+    if m.ice_options <> [] then
+      add (Printf.sprintf "a=ice-options:%s" (String.concat " " m.ice_options));
     Option.iter (fun fp -> add (Printf.sprintf "a=fingerprint:%s %s" fp.hash_func fp.fingerprint)) m.fingerprint;
     Option.iter (fun v -> add (Printf.sprintf "a=setup:%s" v)) m.setup;
     Option.iter (fun v -> add (Printf.sprintf "a=mid:%s" v)) m.mid;
@@ -515,6 +538,8 @@ let rec to_string session =
     List.iter (fun c ->
       add (Printf.sprintf "a=%s" (candidate_to_string c))
     ) m.ice_candidates;
+
+    List.iter (fun (name, value) -> add_attr name value) m.other_attrs;
   ) session.media;
 
   Buffer.contents buf
@@ -611,6 +636,46 @@ let add_candidate session candidate ~media_index =
 
 let get_candidates session =
   List.concat_map (fun m -> m.ice_candidates) session.media
+
+(** Convert ICE candidate to SDP candidate *)
+let ice_candidate_of_ice (c : Ice.candidate) : ice_candidate =
+  {
+    foundation = c.foundation;
+    component_id = c.component;
+    transport = Ice.string_of_transport c.transport;
+    priority = Int64.of_int c.priority;
+    address = c.address;
+    port = c.port;
+    cand_type = Ice.string_of_candidate_type c.cand_type;
+    rel_addr = c.related_address;
+    rel_port = c.related_port;
+    extensions = c.extensions;
+  }
+
+(** Convert SDP candidate to ICE candidate *)
+let ice_candidate_to_ice (c : ice_candidate) : (Ice.candidate, string) result =
+  match Ice.transport_of_string c.transport, Ice.candidate_type_of_string c.cand_type with
+  | Some transport, Some cand_type ->
+    Ok {
+      foundation = c.foundation;
+      component = c.component_id;
+      transport;
+      priority = Int64.to_int c.priority;
+      address = c.address;
+      port = c.port;
+      cand_type;
+      base_address = c.rel_addr;
+      base_port = c.rel_port;
+      related_address = c.rel_addr;
+      related_port = c.rel_port;
+      extensions = c.extensions;
+    }
+  | None, _ -> Error "Invalid ICE transport"
+  | _, None -> Error "Invalid ICE candidate type"
+
+(** Add ICE candidate to session after conversion *)
+let add_candidate_from_ice session candidate ~media_index =
+  add_candidate session (ice_candidate_of_ice candidate) ~media_index
 
 (** {1 Utilities} *)
 

@@ -183,8 +183,8 @@ let gather_candidates t =
     | None -> ()
   );
 
-  (* Gather host candidates synchronously *)
-  Ice.gather_candidates t.ice
+  (* Gather full candidates (host + srflx + relay) *)
+  Ice.gather_candidates_full t.ice
 
 (** {1 Send/Receive through ICE} *)
 
