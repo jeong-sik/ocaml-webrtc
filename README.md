@@ -35,6 +35,8 @@ dune exec ./examples/stun_client.exe           # Discover public IP
 dune exec ./examples/ice_gathering.exe         # Gather ICE candidates
 dune exec ./examples/datachannel.exe           # Full stack demo
 dune exec ./examples/dtls_echo.exe -- server 12345  # DTLS server
+dune exec ./examples/media_loopback.exe -- server 12345  # DTLS-SRTP media server
+dune exec ./examples/media_loopback.exe -- client 127.0.0.1 12345  # DTLS-SRTP media client
 
 # TURN relay smoke (supports TURN_USERNAME / TURN_PASSWORD if set)
 TURN_SERVER=127.0.0.1:3478 dune exec ./test/turn_relay_smoke.exe
@@ -118,6 +120,31 @@ let () =
   let (stream_id, open_msg) = Dcep.open_channel dcep
     ~label:"chat" ~protocol:"" () in
   Printf.printf "Created channel on stream %d\n" stream_id
+```
+
+### DTLS-SRTP Media Loopback
+```ocaml
+open Webrtc
+
+let profile = Srtp.SRTP_AES128_CM_HMAC_SHA1_80
+
+let () =
+  let (local_keys, remote_keys) =
+    match Dtls_srtp.session_keys_of_dtls ~dtls ~role:Dtls_srtp.Client ~profile () with
+    | Ok keys -> keys
+    | Error e -> failwith e
+  in
+  let media = Media_transport.create
+    ~profile
+    ~local_keys
+    ~remote_keys
+    ~ssrc:0x11223344l
+    ~payload_type:111
+  in
+  let payload = Bytes.of_string "hello-media" in
+  match Media_transport.protect_rtp media ~timestamp:0l ~payload () with
+  | Ok packet -> ignore packet
+  | Error e -> Printf.eprintf "SRTP error: %s\n" e
 ```
 
 ## Architecture

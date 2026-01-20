@@ -12,10 +12,10 @@ Priority: P0 -> P1 -> P2 in order.
 ## P0 - Must Have
 
 ### P0.1 Media End-to-End
-- [ ] DTLS-SRTP key export wired to SRTP/SRTCP contexts
-- [ ] Minimal RTP/RTCP send/receive pipeline (single SSRC)
+- [x] DTLS-SRTP key export wired to SRTP/SRTCP contexts
+- [x] Minimal RTP/RTCP send/receive pipeline (single SSRC)
 - [ ] Browser interop smoke (WebRTC peer vs OCaml): RTP/SRTP decrypt + RTCP RR/SDES
-- [ ] Example: `examples/media_loopback.ml` (documented)
+- [x] Example: `examples/media_loopback.ml` (documented)
 
 ### P0.2 ICE/TURN Stability
 - [ ] ICE: peer-reflexive candidate support
@@ -44,4 +44,3 @@ Priority: P0 -> P1 -> P2 in order.
 1) P0.1: DTLS-SRTP -> SRTP/SRTCP wiring
 2) P0.1: RTP/RTCP minimal pipeline + example
 3) P0.2: TURN TLS non-blocking timeout safety
-

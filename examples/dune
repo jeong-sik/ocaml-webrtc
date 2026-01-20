@@ -13,6 +13,10 @@
  (libraries webrtc unix))
 
 (executable
+ (name media_loopback)
+ (libraries webrtc unix))
+
+(executable
  (name datachannel)
  (libraries webrtc unix lwt lwt.unix))
 
