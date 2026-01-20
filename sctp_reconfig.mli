@@ -29,6 +29,11 @@ type reconfig_param =
 
 type t = reconfig_param list
 
+val result_success : int32
+val result_in_progress : int32
+val result_denied : int32
+val result_error : int32
+
 val encode_params : reconfig_param list -> bytes
 val decode_params : bytes -> (reconfig_param list, string) result
 val to_raw_chunk : reconfig_param list -> Sctp.raw_chunk

@@ -855,89 +855,6 @@ let parse_allocate_response msg =
       Ok { relayed_address = relayed; mapped_address = dummy_mapped; lifetime }
     | _ -> Error "Missing required attributes in Allocate Response"
 
-(** Send TURN Allocate request and get response (Lwt async).
-    This is an unauthenticated allocate for testing with local TURN servers.
-    @param server TURN server address (host:port)
-    @param timeout Timeout in seconds (default: 5.0)
-    @return Allocate result or error Lwt promise
-
-    RFC 5766 Section 6: Allocate transaction establishes the allocation
-    and returns the relayed transport address. *)
-let allocate_request_lwt ~server ?(transport = 17) ?lifetime ?timeout () =
-  let open Lwt.Infix in
-  let timeout_s = Option.value ~default:5.0 timeout in
-
-  (* Parse server address *)
-  let parsed = match String.split_on_char ':' server with
-    | [h; p] -> Some (h, int_of_string p)
-    | [h] -> Some (h, default_port)
-    | _ -> None
-  in
-  match parsed with
-  | None -> Lwt.return (Error "Invalid TURN server address")
-  | Some (host, port) ->
-
-  (* Create Allocate request *)
-  let request = create_allocate_request ~transport ?lifetime () in
-  let request_bytes = encode request in
-
-  (* Resolve address *)
-  Lwt_unix.getaddrinfo host (string_of_int port)
-    [Unix.AI_FAMILY Unix.PF_INET; Unix.AI_SOCKTYPE Unix.SOCK_DGRAM]
-  >>= fun addrs ->
-  match addrs with
-  | [] -> Lwt.return (Error "Could not resolve TURN server address")
-  | addr :: _ ->
-    (* Create UDP socket *)
-    let sock = Lwt_unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in
-
-    (* Send request *)
-    Lwt_unix.sendto sock request_bytes 0 (Bytes.length request_bytes) []
-      addr.Unix.ai_addr
-    >>= fun _sent ->
-
-    (* Receive response with timeout *)
-    let response_buf = Bytes.create 1500 in
-    let recv_promise =
-      Lwt_unix.recvfrom sock response_buf 0 1500 []
-      >>= fun (len, _from) ->
-      Lwt.return (Bytes.sub response_buf 0 len)
-    in
-
-    Lwt.pick [
-      recv_promise;
-      (Lwt_unix.sleep timeout_s >>= fun () -> Lwt.fail (Failure "Timeout"));
-    ]
-    >>= fun result ->
-
-    Lwt_unix.close sock >>= fun () ->
-
-    (* Decode response *)
-    match decode result with
-    | Error e -> Lwt.return (Error e)
-    | Ok response ->
-      (* Verify transaction ID *)
-      if not (Bytes.equal response.transaction_id request.transaction_id) then
-        Lwt.return (Error "Transaction ID mismatch")
-      else if response.msg_class = Error_response then begin
-        (* Extract error code *)
-        let rec find_error = function
-          | [] -> None
-          | { value = Error_code { code; reason }; _ } :: _ ->
-            Some (code, reason)
-          | _ :: rest -> find_error rest
-        in
-        match find_error response.attributes with
-        | Some (401, _) -> Lwt.return (Error "Unauthorized (401): Authentication required")
-        | Some (438, _) -> Lwt.return (Error "Stale Nonce (438)")
-        | Some (code, reason) ->
-          Lwt.return (Error (Printf.sprintf "TURN error %d: %s" code reason))
-        | None -> Lwt.return (Error "TURN error response (unknown error)")
-      end else
-        match parse_allocate_response response with
-        | Ok result -> Lwt.return (Ok result)
-        | Error e -> Lwt.return (Error e)
-
 (* ============================================
    Message Integrity (HMAC-SHA1)
    ============================================ *)
@@ -973,6 +890,318 @@ let verify_integrity msg ~key =
   | Some expected ->
     let calculated = calculate_integrity msg ~key in
     Bytes.equal expected calculated
+
+(** Compute long-term credential key: MD5(username:realm:password) *)
+let compute_long_term_key ~username ~realm ~password =
+  let input = Printf.sprintf "%s:%s:%s" username realm password in
+  Digestif.MD5.digest_string input
+  |> Digestif.MD5.to_raw_string
+
+let add_message_integrity msg ~key =
+  let integrity = calculate_integrity msg ~key in
+  { msg with attributes = msg.attributes @ [
+      { attr_type = MESSAGE_INTEGRITY; value = Message_integrity integrity }
+    ] }
+
+let add_auth_attributes msg ~username ~realm ~nonce =
+  { msg with attributes = msg.attributes @ [
+      { attr_type = USERNAME; value = Username username };
+      { attr_type = REALM; value = Realm realm };
+      { attr_type = NONCE; value = Nonce nonce };
+    ] }
+
+let find_realm_nonce msg =
+  let rec loop realm nonce = function
+    | [] -> (realm, nonce)
+    | { value = Realm r; _ } :: rest -> loop (Some r) nonce rest
+    | { value = Nonce n; _ } :: rest -> loop realm (Some n) rest
+    | _ :: rest -> loop realm nonce rest
+  in
+  loop None None msg.attributes
+
+let find_error_code msg =
+  let rec loop = function
+    | [] -> None
+    | { value = Error_code { code; _ }; _ } :: _ -> Some code
+    | _ :: rest -> loop rest
+  in
+  loop msg.attributes
+
+let default_tls_ca_candidates = [
+  "/etc/ssl/certs/ca-certificates.crt";  (* Debian/Ubuntu *)
+  "/etc/ssl/cert.pem";                    (* macOS *)
+  "/etc/pki/tls/certs/ca-bundle.crt";     (* RHEL/CentOS/Fedora *)
+]
+
+let find_tls_ca ?tls_ca () =
+  match tls_ca with
+  | Some path -> if Sys.file_exists path then Some path else None
+  | None ->
+    let env_candidates = List.filter_map (fun key -> Sys.getenv_opt key)
+        ["TURN_TLS_CA"; "SSL_CERT_FILE"]
+    in
+    let candidates = env_candidates @ default_tls_ca_candidates in
+    List.find_opt Sys.file_exists candidates
+
+let load_ca_certificates path =
+  try
+    let ic = open_in_bin path in
+    let len = in_channel_length ic in
+    let data = really_input_string ic len in
+    close_in ic;
+    match X509.Certificate.decode_pem_multiple data with
+    | Ok certs when certs <> [] -> Ok certs
+    | Ok _ -> Error "No CA certificates found"
+    | Error (`Msg msg) -> Error msg
+  with
+  | Sys_error msg -> Error msg
+
+let build_tls_authenticator ?tls_ca () =
+  match find_tls_ca ?tls_ca () with
+  | None ->
+    let hint = match tls_ca with
+      | Some path -> Printf.sprintf "TLS CA not found: %s" path
+      | None -> "TLS CA not found (set TURN_TLS_CA or SSL_CERT_FILE)"
+    in
+    Error hint
+  | Some path ->
+    load_ca_certificates path
+    |> Result.map (fun certs ->
+        X509.Authenticator.chain_of_trust
+          ~time:(fun () -> Some (Ptime_clock.now ()))
+          certs)
+
+let ensure_tls_rng () =
+  try Mirage_crypto_rng_unix.use_default () with _ -> ()
+
+let read_stun_frame_tls tls =
+  let header = Bytes.create 20 in
+  Tls_unix.really_read tls header;
+  let msg_len = get_uint16_be header 2 in
+  let total_len = 20 + msg_len in
+  let buf = Bytes.create total_len in
+  Bytes.blit header 0 buf 0 20;
+  if msg_len > 0 then
+    Tls_unix.really_read tls buf ~off:20 ~len:msg_len;
+  buf
+
+(** Send TURN Allocate request and get response (Lwt async).
+    Supports optional long-term credentials if username/credential are provided.
+    @param server TURN server address (host:port)
+    @param timeout Timeout in seconds (default: 5.0)
+    @param use_tls Use TLS (turns:) for TURN allocation (default: false)
+    @param tls_ca Optional CA bundle path for TLS verification
+    @return Allocate result or error Lwt promise
+
+    RFC 5766 Section 6: Allocate transaction establishes the allocation
+    and returns the relayed transport address. *)
+let allocate_request_lwt ~server ?(transport = 17) ?lifetime ?timeout
+    ?username ?credential ?(use_tls = false) ?tls_ca () =
+  let open Lwt.Infix in
+  let timeout_s = Option.value ~default:5.0 timeout in
+
+  (* Parse server address *)
+  let parsed = match String.split_on_char ':' server with
+    | [h; p] -> Some (h, int_of_string p)
+    | [h] -> Some (h, default_port)
+    | _ -> None
+  in
+  match parsed with
+  | None -> Lwt.return (Error "Invalid TURN server address")
+  | Some (host, port) ->
+
+  let decode_response request result =
+    match decode result with
+    | Error e -> Error e
+    | Ok response ->
+      if not (Bytes.equal response.transaction_id request.transaction_id) then
+        Error "Transaction ID mismatch"
+      else
+        Ok response
+  in
+  let decode_response_lwt request result =
+    Lwt.return (decode_response request result)
+  in
+
+  let handle_success response =
+    match parse_allocate_response response with
+    | Ok result -> Ok result
+    | Error e -> Error e
+  in
+  let handle_success_lwt response =
+    Lwt.return (handle_success response)
+  in
+
+  let build_auth_request ~username ~password ~realm ~nonce =
+    let base = create_allocate_request ~transport ?lifetime () in
+    let msg = add_auth_attributes base ~username ~realm ~nonce in
+    let key = compute_long_term_key ~username ~realm ~password in
+    add_message_integrity msg ~key
+  in
+
+  let rec send_authenticated_lwt send_and_recv ~username ~password ~realm ~nonce ~attempts =
+    let auth_request = build_auth_request ~username ~password ~realm ~nonce in
+    send_and_recv auth_request >>= function
+    | Error e -> Lwt.return (Error e)
+    | Ok response ->
+      if response.msg_class = Error_response then
+        match find_error_code response with
+        | Some 438 when attempts > 0 ->
+          let (realm_opt, nonce_opt) = find_realm_nonce response in
+          let next_realm = Option.value ~default:realm realm_opt in
+          let next_nonce = Option.value ~default:nonce nonce_opt in
+          send_authenticated_lwt send_and_recv ~username ~password ~realm:next_realm
+            ~nonce:next_nonce ~attempts:(attempts - 1)
+        | Some code ->
+          Lwt.return (Error (Printf.sprintf "TURN error %d" code))
+        | None ->
+          Lwt.return (Error "TURN error response (unknown error)")
+      else
+        handle_success_lwt response
+  in
+
+  let rec send_authenticated_blocking send_and_recv ~username ~password ~realm ~nonce ~attempts =
+    let auth_request = build_auth_request ~username ~password ~realm ~nonce in
+    match send_and_recv auth_request with
+    | Error e -> Error e
+    | Ok response ->
+      if response.msg_class = Error_response then
+        match find_error_code response with
+        | Some 438 when attempts > 0 ->
+          let (realm_opt, nonce_opt) = find_realm_nonce response in
+          let next_realm = Option.value ~default:realm realm_opt in
+          let next_nonce = Option.value ~default:nonce nonce_opt in
+          send_authenticated_blocking send_and_recv ~username ~password
+            ~realm:next_realm ~nonce:next_nonce ~attempts:(attempts - 1)
+        | Some code ->
+          Error (Printf.sprintf "TURN error %d" code)
+        | None ->
+          Error "TURN error response (unknown error)"
+      else
+        handle_success response
+  in
+
+  let send_and_recv_udp sock addr request =
+    let request_bytes = encode request in
+    Lwt_unix.sendto sock request_bytes 0 (Bytes.length request_bytes) []
+      addr.Unix.ai_addr
+    >>= fun _sent ->
+
+    let response_buf = Bytes.create 1500 in
+    let recv_promise =
+      Lwt_unix.recvfrom sock response_buf 0 1500 []
+      >>= fun (len, _from) ->
+      Lwt.return (Bytes.sub response_buf 0 len)
+    in
+
+    Lwt.pick [
+      recv_promise;
+      (Lwt_unix.sleep timeout_s >>= fun () -> Lwt.fail (Failure "Timeout"));
+    ]
+    >>= fun result ->
+    decode_response_lwt request result
+  in
+
+  let allocate_over_udp () =
+    Lwt_unix.getaddrinfo host (string_of_int port)
+      [Unix.AI_FAMILY Unix.PF_INET; Unix.AI_SOCKTYPE Unix.SOCK_DGRAM]
+    >>= fun addrs ->
+    match addrs with
+    | [] -> Lwt.return (Error "Could not resolve TURN server address")
+    | addr :: _ ->
+      let sock = Lwt_unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in
+      Lwt.finalize
+        (fun () ->
+          let send_and_recv = send_and_recv_udp sock addr in
+          let request = create_allocate_request ~transport ?lifetime () in
+          send_and_recv request >>= function
+          | Error e -> Lwt.return (Error e)
+          | Ok response ->
+            if response.msg_class = Error_response then
+              match find_error_code response with
+              | Some 401 | Some 438 ->
+                begin match username, credential with
+                | Some username, Some password ->
+                  let (realm_opt, nonce_opt) = find_realm_nonce response in
+                  begin match realm_opt, nonce_opt with
+                  | Some realm, Some nonce ->
+                    send_authenticated_lwt send_and_recv ~username ~password
+                      ~realm ~nonce ~attempts:1
+                  | _ ->
+                    Lwt.return (Error "TURN auth missing realm/nonce")
+                  end
+                | _ ->
+                  Lwt.return (Error "Unauthorized (401): Authentication required")
+                end
+              | Some code ->
+                Lwt.return (Error (Printf.sprintf "TURN error %d" code))
+              | None ->
+                Lwt.return (Error "TURN error response (unknown error)")
+            else
+              handle_success_lwt response
+        )
+        (fun () -> Lwt_unix.close sock)
+  in
+
+  let allocate_over_tls_blocking () =
+    ensure_tls_rng ();
+    match build_tls_authenticator ?tls_ca () with
+    | Error msg -> Error msg
+    | Ok authenticator ->
+      let tls = Tls_unix.connect authenticator (host, port) in
+      Fun.protect
+        ~finally:(fun () -> Tls_unix.close tls)
+        (fun () ->
+          let send_and_recv request =
+            let request_bytes = encode request in
+            Tls_unix.write tls (Bytes.to_string request_bytes);
+            decode_response request (read_stun_frame_tls tls)
+          in
+          let request = create_allocate_request ~transport ?lifetime () in
+          match send_and_recv request with
+          | Error e -> Error e
+          | Ok response ->
+            if response.msg_class = Error_response then
+              match find_error_code response with
+              | Some 401 | Some 438 ->
+                begin match username, credential with
+                | Some username, Some password ->
+                  let (realm_opt, nonce_opt) = find_realm_nonce response in
+                  begin match realm_opt, nonce_opt with
+                  | Some realm, Some nonce ->
+                    send_authenticated_blocking send_and_recv ~username ~password
+                      ~realm ~nonce ~attempts:1
+                  | _ ->
+                    Error "TURN auth missing realm/nonce"
+                  end
+                | _ ->
+                  Error "Unauthorized (401): Authentication required"
+                end
+              | Some code ->
+                Error (Printf.sprintf "TURN error %d" code)
+              | None ->
+                Error "TURN error response (unknown error)"
+            else
+              handle_success response
+        )
+  in
+
+  let allocate_over_tls () =
+    let op = Lwt_preemptive.detach (fun () ->
+      try allocate_over_tls_blocking () with
+      | exn -> Error (Printexc.to_string exn)
+    ) () in
+    let timeout =
+      Lwt_unix.sleep timeout_s
+      >>= fun () -> Lwt.return (Error "Timeout")
+    in
+    Lwt.pick [op; timeout]
+  in
+
+  if use_tls then
+    allocate_over_tls ()
+  else
+    allocate_over_udp ()
 
 (* ============================================
    Fingerprint (CRC-32)

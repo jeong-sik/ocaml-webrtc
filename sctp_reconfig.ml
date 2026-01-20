@@ -40,6 +40,11 @@ let param_reconfig_response = 0x0010
 let param_add_outgoing = 0x0011
 let param_add_incoming = 0x0012
 
+let result_success = 0l
+let result_in_progress = 1l
+let result_denied = 2l
+let result_error = 3l
+
 let pad4 len = (len + 3) land (lnot 3)
 
 let encode_stream_list streams =

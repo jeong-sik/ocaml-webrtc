@@ -54,6 +54,37 @@ let build_reconfig_packet params =
     chunks = [chunk];
   }
 
+let decode_reconfig_params packet =
+  match Sctp.decode_packet packet with
+  | Error e -> failwith e
+  | Ok pkt ->
+    let is_reconfig chunk =
+      chunk.Sctp.chunk_type = Sctp.int_of_chunk_type Sctp.RE_CONFIG
+    in
+    match List.find_opt is_reconfig pkt.Sctp.chunks with
+    | None -> failwith "missing RE-CONFIG chunk"
+    | Some chunk ->
+      match Sctp_reconfig.of_raw_chunk chunk with
+      | Ok params -> params
+      | Error e -> failwith e
+
+let find_reconfig_request_seq params =
+  let rec loop = function
+    | [] -> failwith "missing reset request"
+    | Sctp_reconfig.Outgoing_ssn_reset r :: _ -> r.request_seq
+    | _ :: rest -> loop rest
+  in
+  loop params
+
+let find_reconfig_response params =
+  let rec loop = function
+    | [] -> failwith "missing reconfig response"
+    | Sctp_reconfig.Reconfig_response { response_seq; result } :: _ ->
+      (response_seq, result)
+    | _ :: rest -> loop rest
+  in
+  loop params
+
 let () =
   Printf.printf "=== SCTP RE-CONFIG ===\n";
 
@@ -102,7 +133,7 @@ let () =
     | Ok _ -> ()
   );
 
-  test "Sctp_core applies reset request" (fun () ->
+  test "peer outgoing reset does not reset local outgoing seq" (fun () ->
     let core = Sctp_core.create () in
     ignore (Sctp_core.initiate_direct core);
     let out1 = Sctp_core.handle core (Sctp_core.UserSend { stream_id = 1; data = Bytes.of_string "a" }) in
@@ -132,7 +163,64 @@ let () =
       | None -> failwith "missing packet"
       | Some p -> decode_data_stream_seq p
     in
-    assert_true "seq reset" (seq3 = 0)
+    assert_true "seq not reset" (seq3 = 2)
+  );
+
+  test "UserResetStreams resets after response" (fun () ->
+    let core = Sctp_core.create () in
+    ignore (Sctp_core.initiate_direct core);
+    ignore (Sctp_core.handle core (Sctp_core.UserSend { stream_id = 1; data = Bytes.of_string "a" }));
+    ignore (Sctp_core.handle core (Sctp_core.UserSend { stream_id = 1; data = Bytes.of_string "b" }));
+
+    let reset_out = Sctp_core.handle core (Sctp_core.UserResetStreams { stream_ids = [1] }) in
+    let reset_packet = match find_send_packet reset_out with
+      | None -> failwith "missing reset packet"
+      | Some p -> p
+    in
+    let request_seq =
+      decode_reconfig_params reset_packet |> find_reconfig_request_seq
+    in
+
+    let out3 = Sctp_core.handle core (Sctp_core.UserSend { stream_id = 1; data = Bytes.of_string "c" }) in
+    let seq3 = match find_send_packet out3 with
+      | None -> failwith "missing packet"
+      | Some p -> decode_data_stream_seq p
+    in
+    assert_true "seq unchanged before response" (seq3 = 2);
+
+    let response = Sctp_reconfig.Reconfig_response {
+      response_seq = request_seq;
+      result = Sctp_reconfig.result_success;
+    } in
+    let response_packet = build_reconfig_packet [response] in
+    ignore (Sctp_core.handle core (Sctp_core.PacketReceived response_packet));
+
+    let out4 = Sctp_core.handle core (Sctp_core.UserSend { stream_id = 1; data = Bytes.of_string "d" }) in
+    let seq4 = match find_send_packet out4 with
+      | None -> failwith "missing packet"
+      | Some p -> decode_data_stream_seq p
+    in
+    assert_true "seq reset after response" (seq4 = 0)
+  );
+
+  test "incoming reset waits for last_tsn" (fun () ->
+    let core = Sctp_core.create ~initial_tsn:1l () in
+    ignore (Sctp_core.initiate_direct core);
+
+    let reconfig = Sctp_reconfig.Outgoing_ssn_reset {
+      request_seq = 11l;
+      response_seq = 0l;
+      last_tsn = 10l;
+      streams = [1];
+    } in
+    let packet = build_reconfig_packet [reconfig] in
+    let outputs = Sctp_core.handle core (Sctp_core.PacketReceived packet) in
+    let response_packet = match find_send_packet outputs with
+      | None -> failwith "missing response packet"
+      | Some p -> p
+    in
+    let (_seq, result) = decode_reconfig_params response_packet |> find_reconfig_response in
+    assert_true "in progress" (result = Sctp_reconfig.result_in_progress)
   );
 
   Printf.printf "\nSCTP RE-CONFIG tests: %d passed, %d failed\n" !passed !failed;

@@ -168,7 +168,7 @@ let gather_candidates t =
   );
 
   (* Start gathering (host + srflx + relay) *)
-  Ice.gather_candidates_full t.ice
+  Lwt.async (fun () -> Ice.gather_candidates_full t.ice)
 
 (** Add remote ICE candidate (Trickle ICE) *)
 let add_remote_candidate t candidate =

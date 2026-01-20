@@ -1,11 +1,12 @@
 (** TURN relay smoke test (interop, opt-in)
 
-    Usage:
-      TURN_SERVER=host:port dune exec ./test/turn_relay_smoke.exe
+  Usage:
+    TURN_SERVER=host:port dune exec ./test/turn_relay_smoke.exe
 
-    Notes:
-      - Uses unauthenticated TURN Allocate via STUN (no-auth TURN server).
-      - Skips when TURN_SERVER is not set.
+  Notes:
+    - Supports long-term credentials if TURN_USERNAME / TURN_PASSWORD are set.
+    - For turns:, set TURN_TLS_CA or SSL_CERT_FILE if system CA is missing.
+    - Skips when TURN_SERVER is not set.
 *)
 
 open Webrtc
@@ -39,11 +40,12 @@ let () =
     let turn_url = normalize_turn_url server in
     let username = Sys.getenv_opt "TURN_USERNAME" in
     let credential = Sys.getenv_opt "TURN_PASSWORD" in
+    let tls_ca = Sys.getenv_opt "TURN_TLS_CA" in
 
     Printf.printf "TURN relay smoke: %s\n" turn_url;
 
     let config = { Ice.default_config with
-      ice_servers = [ { Ice.urls = [turn_url]; username; credential } ];
+      ice_servers = [ { Ice.urls = [turn_url]; username; credential; tls_ca } ];
     } in
     let agent = Ice.create config in
 

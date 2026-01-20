@@ -30,7 +30,7 @@ Status legend:
 | 8489 | STUN update | partial | `stun.mli` | not fully audited vs updated spec |
 | 8445 | ICE | implemented | `ice.ml`, `ice_check.ml`, `test/ice_check_test.ml` | host + srflx, connectivity checks |
 | 8838 | Trickle ICE | implemented | `ice.ml`, `test/ice_trickle_test.ml` | callbacks + end-of-candidates + restart + SDP ice-options |
-| 5766 | TURN | partial | `turn.ml`, `test/turn_rfc_test.ml`, `test/turn_relay_smoke.ml` | client allocate/refresh/channel, relay via `gather_candidates_full` |
+| 5766 | TURN | partial | `turn.ml`, `test/turn_rfc_test.ml`, `test/turn_relay_smoke.ml` | client allocate/refresh/channel, relay via `gather_candidates_full` (long-term auth + turns/TLS supported) |
 | 6156 | TURN IPv6 | partial | `turn.mli` | extension noted, not verified |
 | 5245 | ICE SDP attrs | partial | `sdp.ml`, `test/sdp_test.ml` | ice-options + end-of-candidates + candidate conversion |
 | 8839 | ICE SDP update | partial | `sdp.mli` | not fully audited |
