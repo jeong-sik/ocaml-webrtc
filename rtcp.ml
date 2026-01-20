@@ -42,9 +42,32 @@ type receiver_report = {
   report_blocks : report_block list;
 }
 
+(** SDES item type (RFC 3550). *)
+type sdes_item_type =
+  | CNAME
+  | NAME
+  | EMAIL
+  | PHONE
+  | LOC
+  | TOOL
+  | NOTE
+  | PRIV
+  | Unknown_item of int
+
+type sdes_item = {
+  item_type : sdes_item_type;
+  value : string;
+}
+
+type sdes_chunk = {
+  ssrc : int32;
+  items : sdes_item list;
+}
+
 type packet =
   | Sender_report of sender_report
   | Receiver_report of receiver_report
+  | Source_description of sdes_chunk list
   | Unknown_packet of packet_type * bytes
 
 let packet_type_of_int = function
@@ -68,6 +91,28 @@ let int_of_packet_type = function
   | PSFB -> 206
   | XR -> 207
   | Unknown n -> n
+
+let sdes_item_type_of_int = function
+  | 1 -> CNAME
+  | 2 -> NAME
+  | 3 -> EMAIL
+  | 4 -> PHONE
+  | 5 -> LOC
+  | 6 -> TOOL
+  | 7 -> NOTE
+  | 8 -> PRIV
+  | n -> Unknown_item n
+
+let int_of_sdes_item_type = function
+  | CNAME -> 1
+  | NAME -> 2
+  | EMAIL -> 3
+  | PHONE -> 4
+  | LOC -> 5
+  | TOOL -> 6
+  | NOTE -> 7
+  | PRIV -> 8
+  | Unknown_item n -> n
 
 let read_int24_be buf off =
   let b0 = Bytes.get_uint8 buf off in
@@ -113,6 +158,69 @@ let decode_report_block buf off =
     dlsr;
   }
 
+let sdes_chunk_length items =
+  let items_len =
+    List.fold_left (fun acc item -> acc + 2 + String.length item.value) 0 items
+  in
+  let base = 4 + items_len + 1 in
+  let padding = (4 - (base mod 4)) mod 4 in
+  base + padding
+
+let encode_sdes_chunk (chunk : sdes_chunk) =
+  let total_len = sdes_chunk_length chunk.items in
+  let buf = Bytes.create total_len in
+  write_uint32_be buf 0 chunk.ssrc;
+  let pos = ref 4 in
+  List.iter (fun item ->
+    let item_type = int_of_sdes_item_type item.item_type in
+    let len = String.length item.value in
+    Bytes.set_uint8 buf !pos item_type; incr pos;
+    Bytes.set_uint8 buf !pos len; incr pos;
+    Bytes.blit_string item.value 0 buf !pos len;
+    pos := !pos + len
+  ) chunk.items;
+  Bytes.set_uint8 buf !pos 0;  (* END *)
+  buf
+
+let decode_sdes_chunk buf off limit =
+  if off + 4 > limit then
+    Error "RTCP SDES chunk truncated"
+  else
+    let ssrc = read_uint32_be buf off in
+    let pos = ref (off + 4) in
+    let items = ref [] in
+    let error = ref None in
+    let saw_end = ref false in
+    while (not !saw_end) && !pos < limit && !error = None do
+      let item_type = Bytes.get_uint8 buf !pos in
+      if item_type = 0 then begin
+        incr pos;
+        saw_end := true
+      end else if !pos + 2 > limit then
+        error := Some "RTCP SDES item header truncated"
+      else begin
+        let len = Bytes.get_uint8 buf (!pos + 1) in
+        if !pos + 2 + len > limit then
+          error := Some "RTCP SDES item truncated"
+        else begin
+          let value = Bytes.sub_string buf (!pos + 2) len in
+          items := { item_type = sdes_item_type_of_int item_type; value } :: !items;
+          pos := !pos + 2 + len
+        end
+      end
+    done;
+    begin match !error with
+    | Some msg -> Error msg
+    | None ->
+      if not !saw_end then
+        Error "RTCP SDES missing end marker"
+      else
+        let consumed = !pos - off in
+        let padding = (4 - (consumed mod 4)) mod 4 in
+        let next = !pos + padding in
+        Ok ({ ssrc; items = List.rev !items }, next)
+    end
+
 let encode packet =
   let (packet_type, count, body_len, write_body) =
     match packet with
@@ -147,6 +255,19 @@ let encode packet =
         ) rr.report_blocks
       in
       (RR, count, body_len, write_body)
+    | Source_description chunks ->
+      let count = List.length chunks in
+      if count > 31 then invalid_arg "RTCP SDES chunks must be <= 31";
+      let encoded_chunks = List.map encode_sdes_chunk chunks in
+      let body_len = List.fold_left (fun acc b -> acc + Bytes.length b) 0 encoded_chunks in
+      let write_body buf off =
+        let pos = ref off in
+        List.iter (fun chunk ->
+          Bytes.blit chunk 0 buf !pos (Bytes.length chunk);
+          pos := !pos + Bytes.length chunk
+        ) encoded_chunks
+      in
+      (SDES, count, body_len, write_body)
     | Unknown_packet (pt, data) ->
       let body_len = Bytes.length data in
       let write_body buf off =
@@ -228,6 +349,17 @@ let decode data =
               rb_off := !rb_off + 24
             done;
             Ok (Receiver_report { ssrc; report_blocks = List.rev !blocks })
+        | SDES ->
+          let limit = body_off + body_len in
+          let rec loop idx off acc =
+            if idx = count then
+              Ok (Source_description (List.rev acc))
+            else
+              match decode_sdes_chunk data off limit with
+              | Error e -> Error e
+              | Ok (chunk, next) -> loop (idx + 1) next (chunk :: acc)
+          in
+          loop 0 body_off []
         | _ ->
           let body = Bytes.sub data body_off body_len in
           Ok (Unknown_packet (packet_type, body))

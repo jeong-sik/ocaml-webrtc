@@ -17,6 +17,10 @@
  (libraries webrtc unix))
 
 (executable
+ (name browser_media_smoke)
+ (libraries webrtc unix))
+
+(executable
  (name datachannel)
  (libraries webrtc unix lwt lwt.unix))
 
