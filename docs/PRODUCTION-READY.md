@@ -20,7 +20,7 @@ Priority: P0 -> P1 -> P2 in order.
 ### P0.2 ICE/TURN Stability
 - [ ] ICE: peer-reflexive candidate support
 - [ ] ICE: restart flow + SDP attrs (ice-options/restart)
-- [ ] TURN: TLS path without blocking threads (timeout-safe)
+- [x] TURN: TLS path without blocking threads (timeout-safe)
 - [ ] TURN: permission/channel-bind basic flow test
 
 ## P1 - Quality Gate
