@@ -114,7 +114,7 @@ module Transport_intf = Transport_intf  (** Swappable transport interface *)
 module Dtls_functor = Dtls_functor  (** DTLS with functor-based transport *)
 
 (** Library version *)
-let version = "0.6.0"
+let version = "0.6.1"
 
 (** Library name for User-Agent headers *)
 let user_agent = "ocaml-webrtc/" ^ version
