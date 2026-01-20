@@ -52,12 +52,12 @@ module Turn = Turn
 module Ice = Ice
 module Ice_check = Ice_check  (** RFC 8445 ICE Connectivity Checks (Sans-IO) *)
 module Dtls = Dtls
-module Dtls_srtp = Dtls_srtp
 module Sctp = Sctp
 module Sdp = Sdp
 module Rtp = Rtp
 module Rtcp = Rtcp
 module Srtp = Srtp
+module Dtls_srtp = Dtls_srtp
 module Ecdhe = Ecdhe  (** RFC 8422 ECDHE key exchange *)
 module Webrtc_crypto = Webrtc_crypto  (** TLS 1.2 PRF and AES-GCM *)
 
@@ -86,6 +86,7 @@ module Sctp_bundling = Sctp_bundling  (** RFC 4960 §6.10 Chunk bundling *)
 module Sctp_handshake = Sctp_handshake  (** RFC 4960 §5 4-Way handshake *)
 module Sctp_heartbeat = Sctp_heartbeat  (** RFC 4960 §8.3 Path heartbeat *)
 module Sctp_error = Sctp_error  (** RFC 4960 §3.2, §3.3.10 Unknown chunk handling and ERROR chunk *)
+module Sctp_reconfig = Sctp_reconfig  (** RFC 6525 RE-CONFIG chunk helpers *)
 
 (** {1 Advanced Features (Phase 4)} *)
 

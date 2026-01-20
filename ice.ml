@@ -30,6 +30,7 @@ type ice_server = {
   urls: string list;
   username: string option;
   credential: string option;
+  tls_ca: string option;
 }
 
 (** ICE agent role *)
@@ -138,7 +139,12 @@ type agent = {
 let default_config = {
   role = Controlling;
   ice_servers = [
-    { urls = ["stun:stun.l.google.com:19302"]; username = None; credential = None };
+    {
+      urls = ["stun:stun.l.google.com:19302"];
+      username = None;
+      credential = None;
+      tls_ca = None;
+    };
   ];
   ice_lite = false;
   aggressive_nomination = true;
@@ -729,8 +735,8 @@ let parse_turn_url url =
   | [host; port_str] ->
     (match int_of_string_opt port_str with
      | Some port -> Some (host, port, is_tls)
-     | None -> Some (host, 3478, is_tls))  (* Default TURN port *)
-  | [host] -> Some (host, 3478, is_tls)
+     | None -> Some (host, (if is_tls then 5349 else 3478), is_tls))
+  | [host] -> Some (host, (if is_tls then 5349 else 3478), is_tls)
   | _ -> None
 
 (** Create a relay candidate from TURN allocation response.
@@ -759,24 +765,27 @@ let create_relay_candidate ~component ~address ~port ~base_address ~base_port
     RFC 5766: TURN provides relay addresses for traversing symmetric NATs
     and firewalls that block UDP hole punching.
 
-    This implementation supports unauthenticated TURN for testing with
-    local TURN servers. For production, authentication should be added.
-
     @param agent ICE agent
     @param host_candidate Host candidate to use as base
     @param turn_server TURN server URL (turn:host:port)
     @return Relay candidate option Lwt promise *)
-let gather_relay_candidate agent host_candidate turn_server =
+let gather_relay_candidate agent host_candidate turn_server ?username ?credential ?tls_ca () =
   let open Lwt.Infix in
   match parse_turn_url turn_server with
   | None -> Lwt.return_none
-  | Some (turn_host, turn_port, _is_tls) ->
+  | Some (turn_host, turn_port, is_tls) ->
     let server_addr = Printf.sprintf "%s:%d" turn_host turn_port in
     (* Use STUN module's TURN Allocate request *)
-    Stun.allocate_request_lwt ~server:server_addr ~timeout:5.0 ()
+    Stun.allocate_request_lwt
+      ~server:server_addr
+      ~timeout:5.0
+      ~use_tls:is_tls
+      ?tls_ca
+      ?username
+      ?credential
+      ()
     >>= function
     | Error _e ->
-      (* TURN allocate failed - may need authentication or server unavailable *)
       Lwt.return_none
     | Ok result ->
       let relay_ip = result.Stun.relayed_address.Stun.ip in
@@ -868,8 +877,14 @@ let gather_candidates_full agent =
   Lwt.join srflx_promises >>= fun () ->
 
   (* Step 3: Gather relay candidates from TURN servers (RFC 5766) *)
-  let turn_urls = List.concat_map (fun server -> server.urls) agent.config.ice_servers in
-  let turn_servers = List.filter (fun url ->
+  let turn_urls =
+    List.concat_map (fun server ->
+      List.map (fun url ->
+        (url, server.username, server.credential, server.tls_ca)
+      ) server.urls
+    ) agent.config.ice_servers
+  in
+  let turn_servers = List.filter (fun (url, _, _, _) ->
     (String.length url >= 5 && String.sub url 0 5 = "turn:") ||
     (String.length url >= 6 && String.sub url 0 6 = "turns:")
   ) turn_urls in
@@ -877,8 +892,12 @@ let gather_candidates_full agent =
   (* For each host candidate, try each TURN server *)
   let relay_promises =
     List.concat_map (fun host ->
-      List.map (fun turn_server ->
+      List.map (fun (turn_server, username, credential, tls_ca) ->
         gather_relay_candidate agent host turn_server
+          ?username
+          ?credential
+          ?tls_ca
+          ()
         >>= function
         | None -> Lwt.return_unit
         | Some relay ->

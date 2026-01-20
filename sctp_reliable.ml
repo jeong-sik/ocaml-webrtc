@@ -584,3 +584,9 @@ let get_gap_ranges t =
   List.map (fun { gr_start; gr_end } ->
     (Int32.to_int gr_start, Int32.to_int gr_end)
   ) t.recv_buf.gap_ranges
+
+(** Debug: Get next TSN that would be assigned by sender *)
+let get_next_tsn t = Sctp_ring_buffer.next_tsn t.rtx_queue
+
+(** Debug: Get last assigned TSN from sender side *)
+let get_last_sent_tsn t = Int32.pred (get_next_tsn t)
