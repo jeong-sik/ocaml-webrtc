@@ -974,16 +974,91 @@ let build_tls_authenticator ?tls_ca () =
 let ensure_tls_rng () =
   try Mirage_crypto_rng_unix.use_default () with _ -> ()
 
+let unix_error_to_string = function
+  | Unix.EAGAIN | Unix.EWOULDBLOCK | Unix.ETIMEDOUT -> "Timeout"
+  | err -> Unix.error_message err
+
+let error_of_exn = function
+  | Unix.Unix_error (err, _, _) -> unix_error_to_string err
+  | Tls_unix.Closed_by_peer -> "TLS closed by peer"
+  | End_of_file -> "TLS EOF"
+  | exn -> Printexc.to_string exn
+
+let set_socket_timeouts sock timeout_s =
+  Unix.setsockopt_float sock Unix.SO_RCVTIMEO timeout_s;
+  Unix.setsockopt_float sock Unix.SO_SNDTIMEO timeout_s
+
+let connect_tcp_with_timeout ~host ~port ~timeout_s =
+  let addrs =
+    Unix.getaddrinfo host (string_of_int port)
+      [Unix.AI_SOCKTYPE Unix.SOCK_STREAM]
+  in
+  let rec try_addrs last_error = function
+    | [] ->
+      Error (Option.value ~default:"Could not resolve TURN server address" last_error)
+    | addr :: rest ->
+      let sock = Unix.socket addr.ai_family addr.ai_socktype addr.ai_protocol in
+      let connect_result =
+        try
+          Unix.set_nonblock sock true;
+          match Unix.connect sock addr.ai_addr with
+          | () -> Ok ()
+          | exception Unix.Unix_error (Unix.EINPROGRESS, _, _) ->
+            let (_, writable, _) = Unix.select [] [sock] [] timeout_s in
+            if writable = [] then
+              Error "Timeout"
+            else
+              begin match Unix.getsockopt_error sock with
+              | None -> Ok ()
+              | Some err -> Error (Unix.error_message err)
+              end
+          | exception Unix.Unix_error (err, _, _) ->
+            Error (Unix.error_message err)
+          | exception exn ->
+            Error (Printexc.to_string exn)
+        with
+        | exn -> Error (Printexc.to_string exn)
+      in
+      (match connect_result with
+       | Ok () ->
+         Unix.set_nonblock sock false;
+         Ok sock
+       | Error msg ->
+         Unix.close sock;
+         try_addrs (Some msg) rest)
+  in
+  try_addrs None addrs
+
+let tls_client_config ~authenticator host =
+  let peer_name =
+    match Domain_name.of_string host with
+    | Ok dn -> Some (Domain_name.host dn)
+    | Error _ -> None
+  in
+  match Tls.Config.client ~authenticator ?peer_name () with
+  | Ok config -> Ok (config, peer_name)
+  | Error (`Msg msg) -> Error msg
+
 let read_stun_frame_tls tls =
   let header = Bytes.create 20 in
-  Tls_unix.really_read tls header;
-  let msg_len = get_uint16_be header 2 in
-  let total_len = 20 + msg_len in
-  let buf = Bytes.create total_len in
-  Bytes.blit header 0 buf 0 20;
-  if msg_len > 0 then
-    Tls_unix.really_read tls buf ~off:20 ~len:msg_len;
-  buf
+  try
+    Tls_unix.really_read tls header;
+    let msg_len = get_uint16_be header 2 in
+    let total_len = 20 + msg_len in
+    let buf = Bytes.create total_len in
+    Bytes.blit header 0 buf 0 20;
+    if msg_len > 0 then
+      Tls_unix.really_read tls buf ~off:20 ~len:msg_len;
+    Ok buf
+  with
+  | exn -> Error (error_of_exn exn)
+
+let write_tls tls data =
+  try
+    Tls_unix.write tls (Bytes.to_string data);
+    Ok ()
+  with
+  | exn -> Error (error_of_exn exn)
 
 (** Send TURN Allocate request and get response (Lwt async).
     Supports optional long-term credentials if username/credential are provided.
@@ -1148,54 +1223,72 @@ let allocate_request_lwt ~server ?(transport = 17) ?lifetime ?timeout
     match build_tls_authenticator ?tls_ca () with
     | Error msg -> Error msg
     | Ok authenticator ->
-      let tls = Tls_unix.connect authenticator (host, port) in
-      Fun.protect
-        ~finally:(fun () -> Tls_unix.close tls)
-        (fun () ->
-          let send_and_recv request =
-            let request_bytes = encode request in
-            Tls_unix.write tls (Bytes.to_string request_bytes);
-            decode_response request (read_stun_frame_tls tls)
+      match connect_tcp_with_timeout ~host ~port ~timeout_s with
+      | Error msg -> Error msg
+      | Ok sock ->
+        set_socket_timeouts sock timeout_s;
+        begin match tls_client_config ~authenticator host with
+        | Error msg ->
+          Unix.close sock;
+          Error msg
+        | Ok (config, host_name) ->
+          let tls =
+            try Ok (Tls_unix.client_of_fd config ?host:host_name sock) with
+            | exn ->
+              Unix.close sock;
+              Error (error_of_exn exn)
           in
-          let request = create_allocate_request ~transport ?lifetime () in
-          match send_and_recv request with
+          match tls with
           | Error e -> Error e
-          | Ok response ->
-            if response.msg_class = Error_response then
-              match find_error_code response with
-              | Some 401 | Some 438 ->
-                begin match username, credential with
-                | Some username, Some password ->
-                  let (realm_opt, nonce_opt) = find_realm_nonce response in
-                  begin match realm_opt, nonce_opt with
-                  | Some realm, Some nonce ->
-                    send_authenticated_blocking send_and_recv ~username ~password
-                      ~realm ~nonce ~attempts:1
-                  | _ ->
-                    Error "TURN auth missing realm/nonce"
-                  end
-                | _ ->
-                  Error "Unauthorized (401): Authentication required"
-                end
-              | Some code ->
-                Error (Printf.sprintf "TURN error %d" code)
-              | None ->
-                Error "TURN error response (unknown error)"
-            else
-              handle_success response
-        )
+          | Ok tls ->
+            Fun.protect
+              ~finally:(fun () -> Tls_unix.close tls)
+              (fun () ->
+                let send_and_recv request =
+                  let request_bytes = encode request in
+                  match write_tls tls request_bytes with
+                  | Error e -> Error e
+                  | Ok () ->
+                    begin match read_stun_frame_tls tls with
+                    | Ok frame -> decode_response request frame
+                    | Error e -> Error e
+                    end
+                in
+                let request = create_allocate_request ~transport ?lifetime () in
+                match send_and_recv request with
+                | Error e -> Error e
+                | Ok response ->
+                  if response.msg_class = Error_response then
+                    match find_error_code response with
+                    | Some 401 | Some 438 ->
+                      begin match username, credential with
+                      | Some username, Some password ->
+                        let (realm_opt, nonce_opt) = find_realm_nonce response in
+                        begin match realm_opt, nonce_opt with
+                        | Some realm, Some nonce ->
+                          send_authenticated_blocking send_and_recv ~username ~password
+                            ~realm ~nonce ~attempts:1
+                        | _ ->
+                          Error "TURN auth missing realm/nonce"
+                        end
+                      | _ ->
+                        Error "Unauthorized (401): Authentication required"
+                      end
+                    | Some code ->
+                      Error (Printf.sprintf "TURN error %d" code)
+                    | None ->
+                      Error "TURN error response (unknown error)"
+                  else
+                    handle_success response
+              )
+        end
   in
 
   let allocate_over_tls () =
-    let op = Lwt_preemptive.detach (fun () ->
+    Lwt_preemptive.detach (fun () ->
       try allocate_over_tls_blocking () with
       | exn -> Error (Printexc.to_string exn)
-    ) () in
-    let timeout =
-      Lwt_unix.sleep timeout_s
-      >>= fun () -> Lwt.return (Error "Timeout")
-    in
-    Lwt.pick [op; timeout]
+    ) ()
   in
 
   if use_tls then
