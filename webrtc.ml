@@ -58,6 +58,7 @@ module Rtp = Rtp
 module Rtcp = Rtcp
 module Srtp = Srtp
 module Dtls_srtp = Dtls_srtp
+module Media_transport = Media_transport
 module Ecdhe = Ecdhe  (** RFC 8422 ECDHE key exchange *)
 module Webrtc_crypto = Webrtc_crypto  (** TLS 1.2 PRF and AES-GCM *)
 
