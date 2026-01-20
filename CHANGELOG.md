@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-01-20
+
+### Added
+- TURN TLS (`turns:`) allocate path with CA bundle support
+- ICE TURN config `tls_ca` and `turns:` default port (5349)
+- TURN relay smoke test supports TLS via `TURN_TLS_CA`
+
+### Changed
+- SCTP RE-CONFIG stream handling: separate outbound/inbound SSNs, pending reset flow
+- RFC compliance docs updated for TURN TLS + SCTP RE-CONFIG improvements
+
 ## [0.6.0] - 2026-01-19
 
 ### Added
