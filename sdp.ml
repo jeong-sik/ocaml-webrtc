@@ -624,6 +624,31 @@ let create_answer ~offer ~ice_ufrag ~ice_pwd ~fingerprint =
     ) offer.media;
   }
 
+let merge_ice_options base extra =
+  let add acc opt = if List.mem opt acc then acc else acc @ [opt] in
+  List.fold_left add base extra
+
+let restart_ice ~session ~ice_ufrag ~ice_pwd ?(ice_options = []) () =
+  let combined_options = merge_ice_options session.ice_options ice_options in
+  let update_media (m : media) =
+    let merged = merge_ice_options m.ice_options combined_options in
+    { m with
+      ice_ufrag = Some ice_ufrag;
+      ice_pwd = Some ice_pwd;
+      ice_options = merged;
+    }
+  in
+  let session_media = session.media in
+  let media = List.map update_media session_media in
+  {
+    session with
+    origin = { session.origin with sess_version = Int64.succ session.origin.sess_version };
+    ice_ufrag = Some ice_ufrag;
+    ice_pwd = Some ice_pwd;
+    ice_options = combined_options;
+    media;
+  }
+
 let add_candidate session candidate ~media_index =
   if media_index >= 0 && media_index < List.length session.media then
     let media = List.mapi (fun i m ->
