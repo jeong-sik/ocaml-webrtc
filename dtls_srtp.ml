@@ -7,6 +7,10 @@ type key_material = {
   server_salt : bytes;
 }
 
+type role =
+  | Client
+  | Server
+
 let split_keying_material ~profile keying_material =
   let params = Srtp.params_of_profile profile in
   let key_len = params.cipher_key_len in
@@ -43,3 +47,23 @@ let masters_of_key_material km =
   let client = { Srtp.key = km.client_key; salt = km.client_salt } in
   let server = { Srtp.key = km.server_key; salt = km.server_salt } in
   (client, server)
+
+let select_role role ~client ~server =
+  match role with
+  | Client -> client
+  | Server -> server
+
+let session_keys_of_dtls ~dtls ~role ~profile ?(key_derivation_rate = 0L)
+    ?(index = 0L) () =
+  let material = export_keying_material ~dtls ~profile in
+  let masters = Result.map masters_of_key_material material in
+  Result.bind masters (fun (client_master, server_master) ->
+    let local_master = select_role role ~client:client_master ~server:server_master in
+    let remote_master = select_role role ~client:server_master ~server:client_master in
+    match Srtp.derive_session_keys ~profile ~master:local_master
+            ~key_derivation_rate ~index,
+          Srtp.derive_session_keys ~profile ~master:remote_master
+            ~key_derivation_rate ~index with
+    | Ok local_keys, Ok remote_keys -> Ok (local_keys, remote_keys)
+    | Error e, _ -> Error e
+    | _, Error e -> Error e)
