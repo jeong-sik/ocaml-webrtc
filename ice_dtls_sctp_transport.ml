@@ -225,6 +225,18 @@ let process_stun_packet t data ~from_addr =
     | (Stun.Request, Stun.Binding) ->
       (* ICE connectivity check request - send response *)
       let (from_ip, from_port) = from_addr in
+      let exists = List.exists (fun c ->
+        c.Ice.address = from_ip && c.port = from_port
+      ) t.ice.Ice.remote_candidates in
+      if not exists then begin
+        let prflx = Ice.create_prflx_candidate
+          ~component:1
+          ~address:from_ip
+          ~port:from_port
+          ()
+        in
+        Ice.add_remote_candidate t.ice prflx
+      end;
       let mapped_address : Stun.address = {
         family = Stun.IPv4;
         port = from_port;
