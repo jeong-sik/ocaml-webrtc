@@ -184,7 +184,7 @@ let gather_candidates t =
   );
 
   (* Gather full candidates (host + srflx + relay) *)
-  Ice.gather_candidates_full t.ice
+  Lwt.async (fun () -> Ice.gather_candidates_full t.ice)
 
 (** {1 Send/Receive through ICE} *)
 

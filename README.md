@@ -18,7 +18,7 @@ No C bindings. Suitable for formal verification. Sans-IO architecture.
 | DTLS | ✅ Complete | RFC 6347 | Client/Server handshake, retransmission, cookie validation |
 | SCTP | ✅ Complete | RFC 4960 | Full 4-way handshake, DATA/SACK, congestion control |
 | DCEP | ✅ Complete | RFC 8832 | DATA_CHANNEL_OPEN/ACK, reliable/unreliable modes |
-| TURN | 🚧 In Progress | RFC 5766 | Relay candidate gathering |
+| TURN | 🚧 In Progress | RFC 5766 | Relay candidate gathering (turn/turns, long-term auth) |
 | SDP | ✅ Basic | RFC 8866 | Candidate/credential encoding |
 
 ## Quick Start
@@ -36,8 +36,11 @@ dune exec ./examples/ice_gathering.exe         # Gather ICE candidates
 dune exec ./examples/datachannel.exe           # Full stack demo
 dune exec ./examples/dtls_echo.exe -- server 12345  # DTLS server
 
-# TURN relay smoke (requires no-auth TURN server)
+# TURN relay smoke (supports TURN_USERNAME / TURN_PASSWORD if set)
 TURN_SERVER=127.0.0.1:3478 dune exec ./test/turn_relay_smoke.exe
+# TURN over TLS (turns) - set CA if needed
+TURN_SERVER=turns:turn.example.com:5349 TURN_TLS_CA=/etc/ssl/certs/ca-certificates.crt \
+  dune exec ./test/turn_relay_smoke.exe
 ```
 
 ## Examples
@@ -193,6 +196,7 @@ dune exec ./test/sctp_core_handshake_test.exe  # 9 tests
 - `lwt` / `eio` - Async I/O
 - `mirage-crypto` - Cryptography primitives
 - `x509` - Certificate handling
+- `tls` / `ptime` - TURN TLS verification
 - `cstruct` - Binary data parsing
 - `digestif` - Hash functions (CRC32c for SCTP)
 
@@ -205,7 +209,7 @@ dune exec ./test/sctp_core_handshake_test.exe  # 9 tests
 - [x] SCTP association (RFC 4960)
 - [x] DCEP DataChannels (RFC 8832)
 - [x] ICE-DTLS-SCTP integration
-- [ ] TURN relay support (RFC 5766)
+- [ ] TURN relay support (RFC 5766, full feature set)
 - [ ] Peer-reflexive candidates
 - [ ] ICE Trickle (RFC 8838)
 - [ ] DTLS-SRTP for media (RFC 5764)

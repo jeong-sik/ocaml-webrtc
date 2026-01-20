@@ -22,6 +22,9 @@
    mirage-crypto-rng.unix  ; RNG initialization (subpackage)
    mirage-crypto-ec  ; ECDHE key exchange (RFC 8422)
    digestif
+   x509
+   tls.unix
+   ptime.clock.os
    ; Networking
    ipaddr
    ; Async (optional, for Eio backend)

@@ -323,16 +323,24 @@ val int_to_turn_error : int -> turn_error option
 val parse_allocate_response : message -> (allocate_result, string) result
 
 (** Send TURN Allocate request and get response (Lwt async).
-    This is an unauthenticated allocate for testing with local TURN servers.
+    Supports optional long-term credentials if username/credential are provided.
     @param server TURN server address (host:port)
     @param transport Transport protocol (17 = UDP, 6 = TCP, default: UDP)
     @param lifetime Optional requested lifetime in seconds
     @param timeout Timeout in seconds (default: 5.0)
+    @param username Optional TURN username (long-term credential)
+    @param credential Optional TURN password (long-term credential)
+    @param use_tls Use TLS (turns:) for TURN allocation (default: false)
+    @param tls_ca Optional CA bundle path for TLS verification
     @return Allocate result or error Lwt promise *)
 val allocate_request_lwt :
   server:string ->
   ?transport:int ->
   ?lifetime:int ->
   ?timeout:float ->
+  ?username:string ->
+  ?credential:string ->
+  ?use_tls:bool ->
+  ?tls_ca:string ->
   unit ->
   (allocate_result, string) result Lwt.t
