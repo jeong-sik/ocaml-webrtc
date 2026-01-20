@@ -210,6 +210,15 @@ val create_answer :
   fingerprint:fingerprint ->
   session
 
+(** Restart ICE by updating credentials and bumping session version. *)
+val restart_ice :
+  session:session ->
+  ice_ufrag:string ->
+  ice_pwd:string ->
+  ?ice_options:string list ->
+  unit ->
+  session
+
 (** Add ICE candidate to session *)
 val add_candidate : session -> ice_candidate -> media_index:int -> session
 
