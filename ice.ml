@@ -253,6 +253,27 @@ let create_srflx_candidate ~component ~address ~port ~base_address ~base_port =
     extensions = [];
   }
 
+(** Create a peer-reflexive candidate from an incoming connectivity check. *)
+let create_prflx_candidate ~component ~address ~port ?base_address ?base_port () =
+  let base_address = Option.value ~default:address base_address in
+  let base_port = Option.value ~default:port base_port in
+  {
+    foundation = generate_foundation ~candidate_type:Peer_reflexive
+      ~base_address ();
+    component;
+    transport = UDP;
+    priority = calculate_priority ~candidate_type:Peer_reflexive
+      ~local_pref:65535 ~component;
+    address;
+    port;
+    cand_type = Peer_reflexive;
+    base_address = Some base_address;
+    base_port = Some base_port;
+    related_address = Some base_address;
+    related_port = Some base_port;
+    extensions = [];
+  }
+
 (** {1 Candidate Parsing - RFC 8445 Section 15.1} *)
 
 (** Parse SDP candidate attribute line *)
