@@ -68,7 +68,12 @@ type t = {
 let default_ice_config = {
   Ice.role = Ice.Controlling;
   ice_servers = [
-    { Ice.urls = ["stun:stun.l.google.com:19302"]; username = None; credential = None };
+    {
+      Ice.urls = ["stun:stun.l.google.com:19302"];
+      username = None;
+      credential = None;
+      tls_ca = None;
+    };
   ];
   ice_lite = false;
   aggressive_nomination = true;

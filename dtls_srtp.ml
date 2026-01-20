@@ -1,37 +1,45 @@
-(** DTLS-SRTP key derivation (RFC 5764). *)
+(** DTLS-SRTP key extraction (RFC 5764). *)
 
-type role =
-  | Client
-  | Server
+type key_material = {
+  client_key : bytes;
+  server_key : bytes;
+  client_salt : bytes;
+  server_salt : bytes;
+}
 
-let key_material_len = function
-  | Srtp.AES_128_CM_HMAC_SHA1_80 -> 2 * (16 + 14)
+let split_keying_material ~profile keying_material =
+  let params = Srtp.params_of_profile profile in
+  let key_len = params.cipher_key_len in
+  let salt_len = params.cipher_salt_len in
+  let expected_len = 2 * (key_len + salt_len) in
+  if Bytes.length keying_material <> expected_len then
+    Error "Keying material length mismatch"
+  else
+    let off = ref 0 in
+    let take n =
+      let out = Bytes.sub keying_material !off n in
+      off := !off + n;
+      out
+    in
+    let client_key = take key_len in
+    let server_key = take key_len in
+    let client_salt = take salt_len in
+    let server_salt = take salt_len in
+    Ok { client_key; server_key; client_salt; server_salt }
 
-let derive_keying_material ~dtls ~profile =
-  let length = key_material_len profile in
+let export_keying_material ~dtls ~profile =
+  let params = Srtp.params_of_profile profile in
+  let length = 2 * (params.cipher_key_len + params.cipher_salt_len) in
   match Dtls.export_keying_material
-          dtls
-          ~label:"EXTRACTOR-dtls_srtp"
-          ~context:None
-          ~length
+    dtls
+    ~label:"EXTRACTOR-dtls_srtp"
+    ~context:None
+    ~length
   with
-  | Error _ as err -> err
-  | Ok material ->
-    if Bytes.length material <> length then
-      Error "DTLS-SRTP: invalid keying material length"
-    else
-      let k_len = 16 in
-      let s_len = 14 in
-      let client_key = Bytes.sub material 0 k_len in
-      let server_key = Bytes.sub material k_len k_len in
-      let client_salt = Bytes.sub material (2 * k_len) s_len in
-      let server_salt = Bytes.sub material (2 * k_len + s_len) s_len in
-      Ok (
-        { Srtp.master_key = client_key; master_salt = client_salt },
-        { Srtp.master_key = server_key; master_salt = server_salt }
-      )
+  | Error e -> Error e
+  | Ok material -> split_keying_material ~profile material
 
-let select_role role ~client ~server =
-  match role with
-  | Client -> client
-  | Server -> server
+let masters_of_key_material km =
+  let client = { Srtp.key = km.client_key; salt = km.client_salt } in
+  let server = { Srtp.key = km.server_key; salt = km.server_salt } in
+  (client, server)

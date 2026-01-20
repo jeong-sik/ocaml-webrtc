@@ -52,6 +52,7 @@ type input =
   | PacketReceived of bytes                 (** Incoming UDP packet *)
   | TimerFired of timer_id                  (** A timer expired *)
   | UserSend of { stream_id: int; data: bytes }  (** Application wants to send *)
+  | UserResetStreams of { stream_ids: int list } (** Request stream reset (RFC 6525) *)
   | UserClose                               (** Application requests shutdown *)
 
 (** {1 Output Actions} *)

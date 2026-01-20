@@ -15,6 +15,8 @@
   (mirage-crypto (>= 1.0.0))
   (mirage-crypto-rng (>= 1.0.0))
   (x509 (>= 1.0.0))
+  (tls (>= 2.0.0))
+  (ptime (>= 1.2.0))
   (cstruct (>= 6.0.0))
   (digestif (>= 1.1.0))
   (logs (>= 0.7.0))

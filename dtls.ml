@@ -1610,12 +1610,36 @@ let export_keying_material t ~label ~context ~length =
   if t.state <> Established then
     Result.Error "Connection not established"
   else
-    match t.handshake.master_secret with
-    | None -> Error "No master secret"
-    | Some _master_secret ->
-      (* Placeholder: should use PRF with label, context *)
-      let _ = (label, context) in
-      Result.Ok (random_bytes length)
+    match t.handshake.master_secret,
+          t.handshake.client_random,
+          t.handshake.server_random with
+    | None, _, _ -> Error "No master secret"
+    | _, None, _ | _, _, None -> Error "Missing client/server random"
+    | Some master_secret, Some client_random, Some server_random ->
+      let seed_result =
+        match context with
+        | None ->
+          Ok (Bytes.cat client_random server_random)
+        | Some ctx ->
+          if Bytes.length ctx > 0xFFFF then
+            Error "Context too large"
+          else
+            let len_bytes = Bytes.create 2 in
+            Bytes.set_uint16_be len_bytes 0 (Bytes.length ctx);
+            Ok (Bytes.concat Bytes.empty [client_random; server_random; len_bytes; ctx])
+      in
+      match seed_result with
+      | Error e -> Error e
+      | Ok seed ->
+        let master_cs = Cstruct.of_bytes master_secret in
+        let seed_cs = Cstruct.of_bytes seed in
+        let out = Webrtc_crypto.prf_sha256
+          ~secret:master_cs
+          ~label
+          ~seed:seed_cs
+          ~length
+        in
+        Result.Ok (Cstruct.to_bytes out)
 
 (** {1 Utilities} *)
 

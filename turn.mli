@@ -80,6 +80,15 @@ type config = {
 (** TURN client *)
 type t
 
+(** {1 I/O Effects}
+
+    These effects allow custom runtimes or tests to provide TURN I/O. *)
+type _ Effect.t +=
+  | Send : (bytes * string * int) -> int Effect.t
+  | Recv : int -> (bytes * string * int) Effect.t
+  | Sleep : float -> unit Effect.t
+  | Now : float Effect.t
+
 (** {1 Client Creation} *)
 
 (** Default configuration *)
