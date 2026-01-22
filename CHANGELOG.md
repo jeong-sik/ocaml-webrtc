@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-01-22
+
+### Added
+- **DTLS-SRTP use_srtp Extension** (RFC 5764 Section 4.1.2)
+  - `profile_to_code`/`code_to_profile` for SRTP protection profiles
+  - `encode_use_srtp_extension`/`decode_use_srtp_extension` for TLS handshake
+  - `client_use_srtp`/`server_use_srtp` helpers for ClientHello/ServerHello
+  - `negotiate_profile` for SRTP profile negotiation
+  - 6 new tests in `dtls_srtp_test.ml`
+
+- **RTCP SDES/BYE Packets** (RFC 3550 Section 6.5, 6.6)
+  - Full SDES (Source Description) encode/decode with CNAME, NAME, EMAIL, etc.
+  - Full BYE (Goodbye) packet encode/decode with optional reason
+  - `make_sdes_cname` and `make_bye` helper functions
+  - 6 new tests for SDES/BYE/timing
+
+- **RTCP Timing Calculation** (RFC 3550 Section 6.3)
+  - `calculate_rtcp_interval` implements RFC 3550 deterministic algorithm
+  - Bandwidth allocation: 75% receivers, 25% senders
+  - Minimum interval handling (5s normal, 2.5s initial)
+
+### Changed
+- RTCP test count: 6 → 12 tests
+- README.md Media Stack status updated (RTCP 70%, DTLS-SRTP 80%)
+
 ## [0.6.1] - 2026-01-20
 
 ### Added

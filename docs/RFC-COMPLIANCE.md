@@ -19,7 +19,7 @@ Status legend:
 | 5246 | TLS 1.2 PRF | implemented | `webrtc_crypto.ml`, `test/webrtc_crypto_test.ml` | DTLS key schedule |
 | 5288 | AES-GCM | implemented | `webrtc_crypto.ml`, `test/webrtc_crypto_test.ml` | DTLS record protection |
 | 5705 | Key exporter | implemented | `dtls.ml` | PRF exporter with optional context |
-| 5764 | DTLS-SRTP | partial | `dtls_srtp.ml`, `dtls.ml`, `test/dtls_srtp_test.ml` | exporter + key split, no use_srtp ext yet |
+| 5764 | DTLS-SRTP | implemented | `dtls_srtp.ml`, `dtls.ml`, `test/dtls_srtp_test.ml` | exporter + key split + use_srtp extension + profile negotiation |
 | 7983 | STUN/DTLS demux | implemented | `ice_dtls_sctp_transport.ml` | first-byte demux |
 
 ## STUN / TURN / ICE
@@ -61,22 +61,28 @@ Status legend:
 
 | RFC | Area | Status | Evidence | Notes |
 | --- | --- | --- | --- | --- |
-| 3550 | RTP/RTCP | partial | `rtp.ml`, `rtcp.ml`, `test/rtp_test.ml`, `test/rtcp_test.ml` | minimal encode/decode only |
+| 3550 | RTP/RTCP | partial | `rtp.ml`, `rtcp.ml`, `test/rtp_test.ml`, `test/rtcp_test.ml` | header+CSRC+ext+padding, SR/RR/SDES/BYE, compound packets, timing |
 | 3551 | RTP profile | partial | `rtp.ml`, `rtcp.ml`, `test/rtcp_test.ml` | payload profiles not validated |
 | 7587 | Opus RTP payload | planned | `docs/CORE-MEDIA-PLAN.md` | Opus payload formatting |
 | 3711 | SRTP | partial | `srtp.ml`, `test/srtp_test.ml` | AES-CM + HMAC-SHA1 + SRTP/SRTCP protect |
 | 4585 | RTCP feedback | planned | `docs/CORE-MEDIA-PLAN.md` | NACK planned |
-| 5764 | DTLS-SRTP | partial | `dtls.mli` | key export only |
+| 5764 | DTLS-SRTP | implemented | `dtls_srtp.ml`, `test/dtls_srtp_test.ml` | key export + use_srtp extension + profile negotiation |
 | 6184 | H.264 RTP payload | planned | `docs/CORE-MEDIA-PLAN.md` | video payload format |
 | 7741 | VP8 RTP payload | planned | `docs/CORE-MEDIA-PLAN.md` | video payload format |
 | 7742 | VP9 RTP payload | planned | `docs/CORE-MEDIA-PLAN.md` | video payload format |
 
 ## Top gaps to reach 100%
 
-- SRTP/SRTCP + DTLS-SRTP full media pipeline
-- RTP/RTCP full RFC 3550/3551 behavior and feedback (RFC 4585)
+- SRTP/SRTCP AES-GCM cipher support (currently AES-CM only)
+- RTCP feedback (RFC 4585): NACK, PLI, FIR
 - RTP payload formats (Opus, VP8, VP9, H.264)
 - SCTP stream reconfiguration (RFC 6525) full state machine + stream reset handling
 - Full SDP Offer/Answer semantics for media (audio/video)
+
+## Recent improvements (v0.6.2)
+
+- ✅ DTLS-SRTP use_srtp extension (RFC 5764 Section 4.1.2) - profile negotiation
+- ✅ RTCP SDES/BYE packets (RFC 3550 Section 6.5, 6.6)
+- ✅ RTCP timing calculation (RFC 3550 Section 6.3)
 
 See `docs/RFC-TEST-PLAN.md` for the test expansion plan.

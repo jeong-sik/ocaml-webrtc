@@ -56,6 +56,72 @@ let () =
           (params.cipher_key_len * 2) + params.cipher_salt_len)
   );
 
+  section "use_srtp Extension (RFC 5764 Section 4.1.2)";
+
+  test "encode/decode use_srtp round-trip" (fun () ->
+    let profiles = [Srtp.SRTP_AES128_CM_HMAC_SHA1_80; Srtp.SRTP_AES128_CM_HMAC_SHA1_32] in
+    let ext = Dtls_srtp.client_use_srtp profiles in
+    (* Skip extension type (2) and length (2), decode data *)
+    let data = Bytes.sub ext 4 (Bytes.length ext - 4) in
+    match Dtls_srtp.decode_use_srtp_extension data with
+    | Error e -> failwith e
+    | Ok decoded ->
+      assert_eq "profile count" 2 (List.length decoded.profiles);
+      assert_true "first profile"
+        (List.hd decoded.profiles = Srtp.SRTP_AES128_CM_HMAC_SHA1_80);
+      assert_true "MKI empty" (Bytes.length decoded.mki = 0)
+  );
+
+  test "profile_to_code mapping" (fun () ->
+    assert_eq "SHA1_80 code" 0x0001
+      (Dtls_srtp.profile_to_code Srtp.SRTP_AES128_CM_HMAC_SHA1_80);
+    assert_eq "SHA1_32 code" 0x0002
+      (Dtls_srtp.profile_to_code Srtp.SRTP_AES128_CM_HMAC_SHA1_32);
+    assert_eq "NULL_80 code" 0x0005
+      (Dtls_srtp.profile_to_code Srtp.SRTP_NULL_HMAC_SHA1_80);
+    assert_eq "NULL_32 code" 0x0006
+      (Dtls_srtp.profile_to_code Srtp.SRTP_NULL_HMAC_SHA1_32)
+  );
+
+  test "code_to_profile mapping" (fun () ->
+    assert_true "SHA1_80"
+      (Dtls_srtp.code_to_profile 0x0001 = Some Srtp.SRTP_AES128_CM_HMAC_SHA1_80);
+    assert_true "SHA1_32"
+      (Dtls_srtp.code_to_profile 0x0002 = Some Srtp.SRTP_AES128_CM_HMAC_SHA1_32);
+    assert_true "unknown code" (Dtls_srtp.code_to_profile 0x9999 = None)
+  );
+
+  test "negotiate_profile" (fun () ->
+    (* Client prefers SHA1_32 first, but server only supports SHA1_80 *)
+    let client = [Srtp.SRTP_AES128_CM_HMAC_SHA1_32; Srtp.SRTP_AES128_CM_HMAC_SHA1_80] in
+    let server = [Srtp.SRTP_AES128_CM_HMAC_SHA1_80; Srtp.SRTP_NULL_HMAC_SHA1_80] in
+    match Dtls_srtp.negotiate_profile ~client_profiles:client ~server_supported:server with
+    | None -> failwith "Expected negotiation success"
+    | Some p -> assert_true "negotiated SHA1_80 (first client profile in server)"
+        (p = Srtp.SRTP_AES128_CM_HMAC_SHA1_80)
+  );
+
+  test "negotiate_profile no match" (fun () ->
+    let client = [Srtp.SRTP_AES128_CM_HMAC_SHA1_32] in
+    let server = [Srtp.SRTP_NULL_HMAC_SHA1_80] in
+    match Dtls_srtp.negotiate_profile ~client_profiles:client ~server_supported:server with
+    | None -> ()  (* Expected: no common profile *)
+    | Some _ -> failwith "Expected negotiation failure"
+  );
+
+  test "server_use_srtp single profile" (fun () ->
+    let ext = Dtls_srtp.server_use_srtp Srtp.SRTP_AES128_CM_HMAC_SHA1_80 in
+    let data = Bytes.sub ext 4 (Bytes.length ext - 4) in
+    match Dtls_srtp.decode_use_srtp_extension data with
+    | Error e -> failwith e
+    | Ok decoded ->
+      assert_eq "single profile" 1 (List.length decoded.profiles)
+  );
+
+  test "extension_type is 14" (fun () ->
+    assert_eq "use_srtp type" 14 Dtls_srtp.extension_type_use_srtp
+  );
+
   section "Masters";
 
   test "masters_of_key_material wiring" (fun () ->

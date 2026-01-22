@@ -1469,3 +1469,129 @@ let pp_pair fmt p =
     p.pair_priority
     (string_of_pair_state p.pair_state)
     p.nominated
+
+(** {1 RFC 5245 - ICE Improvements} *)
+
+(** Nomination strategy per RFC 5245 Section 8 *)
+type nomination_mode =
+  | Regular_nomination    (** Wait for successful check, then nominate *)
+  | Aggressive_nomination (** Nominate every pair immediately *)
+[@@deriving show, eq]
+
+(** Keepalive state for maintaining NAT bindings *)
+type keepalive_state =
+  | Keepalive_stopped
+  | Keepalive_active of {
+      last_sent : float;      (** Timestamp of last keepalive sent *)
+      interval : float;       (** Keepalive interval in seconds *)
+    }
+[@@deriving show]
+
+(** Calculate candidate pair priority per RFC 5245 Section 5.7.2.
+
+    Formula: 2^32 * MIN(G, D) + 2 * MAX(G, D) + (G > D ? 1 : 0)
+
+    Where G = priority of controlling agent's candidate
+          D = priority of controlled agent's candidate
+
+    @param controlling_priority Priority of the controlling agent's candidate
+    @param controlled_priority Priority of the controlled agent's candidate
+    @param role Current agent's role (Controlling or Controlled)
+    @return 64-bit pair priority
+*)
+let calculate_pair_priority ~controlling_priority ~controlled_priority ~role =
+  let g = Int64.of_int controlling_priority in
+  let d = Int64.of_int controlled_priority in
+  let _ = role in  (* Role determines which side we're on, but formula is symmetric *)
+  let min_gd = if g < d then g else d in
+  let max_gd = if g > d then g else d in
+  let two_pow_32 = Int64.shift_left 1L 32 in
+  (* term1 = 2^32 * MIN(G, D) *)
+  let term1 = Int64.mul two_pow_32 min_gd in
+  (* term2 = 2 * MAX(G, D) *)
+  let term2 = Int64.mul 2L max_gd in
+  (* term3 = (G > D ? 1 : 0) *)
+  let term3 = if g > d then 1L else 0L in
+  Int64.add (Int64.add term1 term2) term3
+
+(** Nominate a candidate pair.
+
+    In Regular nomination, this happens after connectivity check succeeds.
+    In Aggressive nomination, this happens immediately when sending check.
+
+    @param agent The ICE agent
+    @param pair The pair to nominate
+    @return Updated agent with nominated pair
+*)
+let nominate_pair agent pair =
+  let nominated = { pair with nominated = true } in
+  let pairs = List.map (fun p ->
+    if p.local.foundation = pair.local.foundation &&
+       p.remote.foundation = pair.remote.foundation then
+      nominated
+    else p
+  ) agent.pairs in
+  { agent with
+    pairs;
+    nominated_pair = Some nominated;
+  }
+
+(** Start keepalive mechanism for nominated pair.
+
+    Sends STUN Binding Indications at regular intervals to keep
+    NAT bindings alive per RFC 5245 Section 10.
+
+    @param interval_sec Keepalive interval in seconds (default: 15.0)
+    @return Keepalive state
+*)
+let start_keepalive ?(interval_sec = 15.0) () =
+  Keepalive_active {
+    last_sent = Unix.gettimeofday ();
+    interval = interval_sec;
+  }
+
+(** Check if keepalive should be sent now.
+
+    @param state Current keepalive state
+    @param now Current timestamp
+    @return true if keepalive is due
+*)
+let is_keepalive_due state now =
+  match state with
+  | Keepalive_stopped -> false
+  | Keepalive_active { last_sent; interval } ->
+    now -. last_sent >= interval
+
+(** Update keepalive state after sending.
+
+    @param state Current keepalive state
+    @return Updated state with new timestamp
+*)
+let update_keepalive_sent state =
+  match state with
+  | Keepalive_stopped -> Keepalive_stopped
+  | Keepalive_active ka ->
+    Keepalive_active { ka with last_sent = Unix.gettimeofday () }
+
+(** Handle keepalive timeout - peer may be unreachable.
+
+    If too many keepalives fail, the connection should be considered dead.
+
+    @param max_failures Maximum consecutive failures before timeout
+    @param current_failures Current failure count
+    @return true if connection should be considered dead
+*)
+let is_keepalive_timeout ~max_failures ~current_failures =
+  current_failures >= max_failures
+
+(** Get recommended keepalive interval per RFC 5245.
+
+    The default is 15 seconds for UDP. For TCP, keepalives are less critical
+    since the connection state is maintained by the transport.
+
+    @param transport UDP or TCP
+    @return Recommended interval in seconds
+*)
+let recommended_keepalive_interval = function
+  | UDP -> 15.0
+  | TCP -> 30.0

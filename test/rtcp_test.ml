@@ -98,6 +98,94 @@ let () =
     | Ok _ -> failwith "expected Unknown"
   );
 
+  section "SDES (RFC 3550 Section 6.5)";
+
+  test "SDES encode/decode" (fun () ->
+    let sdes : Webrtc.Rtcp.sdes = [
+      {
+        ssrc = 0xDEADBEEFl;
+        items = [
+          { item_type = Webrtc.Rtcp.CNAME; value = "user@example.com" };
+          { item_type = Webrtc.Rtcp.NAME; value = "Test User" };
+        ]
+      }
+    ] in
+    let data = Webrtc.Rtcp.encode (Webrtc.Rtcp.Sdes sdes) in
+    match Webrtc.Rtcp.decode data with
+    | Error e -> failwith e
+    | Ok (Webrtc.Rtcp.Sdes decoded) ->
+      assert_eq "chunk count" 1 (List.length decoded);
+      let chunk = List.hd decoded in
+      assert_eq_i32 "ssrc" 0xDEADBEEFl chunk.ssrc;
+      assert_eq "item count" 2 (List.length chunk.items);
+      let cname = List.hd chunk.items in
+      assert_true "CNAME type" (cname.item_type = Webrtc.Rtcp.CNAME);
+      assert_true "CNAME value" (cname.value = "user@example.com")
+    | Ok _ -> failwith "expected SDES"
+  );
+
+  test "SDES make_sdes_cname helper" (fun () ->
+    let pkt = Webrtc.Rtcp.make_sdes_cname ~ssrc:0x12345678l ~cname:"test@local" in
+    let data = Webrtc.Rtcp.encode pkt in
+    match Webrtc.Rtcp.decode data with
+    | Error e -> failwith e
+    | Ok (Webrtc.Rtcp.Sdes chunks) ->
+      assert_eq "chunk count" 1 (List.length chunks);
+      let chunk = List.hd chunks in
+      assert_eq_i32 "ssrc" 0x12345678l chunk.ssrc;
+      assert_eq "item count" 1 (List.length chunk.items);
+      let item = List.hd chunk.items in
+      assert_true "is CNAME" (item.item_type = Webrtc.Rtcp.CNAME);
+      assert_true "cname value" (item.value = "test@local")
+    | Ok _ -> failwith "expected SDES"
+  );
+
+  section "BYE (RFC 3550 Section 6.6)";
+
+  test "BYE encode/decode without reason" (fun () ->
+    let bye = Webrtc.Rtcp.make_bye [0x11111111l; 0x22222222l] in
+    let data = Webrtc.Rtcp.encode bye in
+    match Webrtc.Rtcp.decode data with
+    | Error e -> failwith e
+    | Ok (Webrtc.Rtcp.Bye decoded) ->
+      assert_eq "ssrc count" 2 (List.length decoded.ssrcs);
+      assert_true "first ssrc" (List.hd decoded.ssrcs = 0x11111111l);
+      assert_true "no reason" (decoded.reason = None)
+    | Ok _ -> failwith "expected BYE"
+  );
+
+  test "BYE encode/decode with reason" (fun () ->
+    let bye = Webrtc.Rtcp.make_bye ~reason:"Session ended" [0xCAFEBABEl] in
+    let data = Webrtc.Rtcp.encode bye in
+    match Webrtc.Rtcp.decode data with
+    | Error e -> failwith e
+    | Ok (Webrtc.Rtcp.Bye decoded) ->
+      assert_eq "ssrc count" 1 (List.length decoded.ssrcs);
+      assert_eq_i32 "ssrc" 0xCAFEBABEl (List.hd decoded.ssrcs);
+      (match decoded.reason with
+       | None -> failwith "expected reason"
+       | Some r -> assert_true "reason text" (r = "Session ended"))
+    | Ok _ -> failwith "expected BYE"
+  );
+
+  section "RTCP Timing (RFC 3550 Section 6.3)";
+
+  test "calculate_rtcp_interval minimum" (fun () ->
+    let interval = Webrtc.Rtcp.calculate_rtcp_interval
+      ~members:2 ~senders:1 ~rtcp_bw:1000.0
+      ~we_sent:false ~avg_rtcp_size:100.0 ~initial:false
+    in
+    assert_true "min 5 seconds" (interval >= 5.0)
+  );
+
+  test "calculate_rtcp_interval initial reduced" (fun () ->
+    let interval = Webrtc.Rtcp.calculate_rtcp_interval
+      ~members:2 ~senders:1 ~rtcp_bw:10000.0
+      ~we_sent:false ~avg_rtcp_size:100.0 ~initial:true
+    in
+    assert_true "min 2.5 seconds for initial" (interval >= 2.5)
+  );
+
   section "Compound";
 
   test "decode compound packets" (fun () ->

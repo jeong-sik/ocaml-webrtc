@@ -747,3 +747,238 @@ let pp_session fmt session =
 
 let pp_media fmt media =
   Format.fprintf fmt "%s" (media_to_string media)
+
+(** {1 RFC 3264 Offer/Answer State Machine} *)
+
+(** SDP description type for Offer/Answer model *)
+type sdp_type =
+  | Offer
+  | Answer
+  | Pranswer  (** Provisional answer *)
+  | Rollback
+[@@warning "-37"]
+
+(** Signaling state per JSEP/RFC 3264 *)
+type signaling_state =
+  | Stable
+  | HaveLocalOffer
+  | HaveRemoteOffer
+  | HaveLocalPranswer
+  | HaveRemotePranswer
+  | Closed
+
+(** Session description with type *)
+type session_description = {
+  sdp_type : sdp_type;
+  sdp : session;
+}
+
+(** Offer/Answer state machine errors *)
+type signaling_error =
+  | InvalidStateTransition of string
+  | InvalidSdpType of string  (** Reserved for future use *)
+  | GlareDetected  (** Both sides sent offers simultaneously *)
+  | AlreadyClosed
+[@@warning "-37"]
+
+(** Offer/Answer state machine *)
+module OfferAnswer = struct
+  type t = {
+    state : signaling_state;
+    local_description : session_description option;
+    remote_description : session_description option;
+  }
+
+  let create () = {
+    state = Stable;
+    local_description = None;
+    remote_description = None;
+  }
+
+  let state t = t.state
+
+  let state_to_string = function
+    | Stable -> "stable"
+    | HaveLocalOffer -> "have-local-offer"
+    | HaveRemoteOffer -> "have-remote-offer"
+    | HaveLocalPranswer -> "have-local-pranswer"
+    | HaveRemotePranswer -> "have-remote-pranswer"
+    | Closed -> "closed"
+
+  (** Check if we can create an offer in current state *)
+  let can_create_offer t =
+    match t.state with
+    | Stable | HaveLocalOffer -> true
+    | _ -> false
+
+  (** Check if we can create an answer in current state *)
+  let can_create_answer t =
+    match t.state with
+    | HaveRemoteOffer | HaveLocalPranswer -> true
+    | _ -> false
+
+  (** Create an offer (does not change state - use set_local_description) *)
+  let create_offer t media_list =
+    if t.state = Closed then
+      Error AlreadyClosed
+    else if not (can_create_offer t) then
+      Error (InvalidStateTransition
+        (Printf.sprintf "Cannot create offer in state %s" (state_to_string t.state)))
+    else
+      (* Generate offer SDP from media list *)
+      let origin = {
+        username = "-";
+        sess_id = string_of_int (Random.int 1000000000);
+        sess_version = 1L;
+        net_type = IN;
+        addr_type = IP4;
+        unicast_address = "127.0.0.1";
+      } in
+      let session = {
+        version = 0;
+        origin;
+        session_name = "-";
+        session_info = None;
+        uri = None;
+        emails = [];
+        phones = [];
+        connection = None;
+        bandwidths = [];
+        timings = [{ start_time = 0L; stop_time = 0L }];
+        ice_lite = false;
+        ice_ufrag = None;
+        ice_pwd = None;
+        ice_options = [];
+        fingerprint = None;
+        groups = [];
+        msid_semantic = None;
+        media = media_list;
+        other_attrs = [];
+      } in
+      Ok { sdp_type = Offer; sdp = session }
+
+  (** Create an answer to a remote offer *)
+  let create_answer t media_list =
+    if t.state = Closed then
+      Error AlreadyClosed
+    else if not (can_create_answer t) then
+      Error (InvalidStateTransition
+        (Printf.sprintf "Cannot create answer in state %s" (state_to_string t.state)))
+    else
+      match t.remote_description with
+      | None -> Error (InvalidStateTransition "No remote offer to answer")
+      | Some remote ->
+        let origin = {
+          username = "-";
+          sess_id = string_of_int (Random.int 1000000000);
+          sess_version = 1L;
+          net_type = IN;
+          addr_type = IP4;
+          unicast_address = "127.0.0.1";
+        } in
+        let session = {
+          version = 0;
+          origin;
+          session_name = "-";
+          session_info = None;
+          uri = None;
+          emails = [];
+          phones = [];
+          connection = None;
+          bandwidths = [];
+          timings = [{ start_time = 0L; stop_time = 0L }];
+          ice_lite = false;
+          ice_ufrag = remote.sdp.ice_ufrag;
+          ice_pwd = remote.sdp.ice_pwd;
+          ice_options = remote.sdp.ice_options;
+          fingerprint = None;
+          groups = [];
+          msid_semantic = None;
+          media = media_list;
+          other_attrs = [];
+        } in
+        Ok { sdp_type = Answer; sdp = session }
+
+  (** Set local description with state transition *)
+  let set_local_description t desc =
+    if t.state = Closed then
+      Error AlreadyClosed
+    else
+      match (t.state, desc.sdp_type) with
+      (* Setting local offer *)
+      | (Stable, Offer) ->
+        Ok { t with state = HaveLocalOffer; local_description = Some desc }
+      | (HaveLocalOffer, Offer) ->
+        (* Implicit rollback + new offer *)
+        Ok { t with state = HaveLocalOffer; local_description = Some desc }
+
+      (* Setting local answer *)
+      | (HaveRemoteOffer, Answer) ->
+        Ok { t with state = Stable; local_description = Some desc }
+      | (HaveLocalPranswer, Answer) ->
+        Ok { t with state = Stable; local_description = Some desc }
+
+      (* Setting local pranswer *)
+      | (HaveRemoteOffer, Pranswer) ->
+        Ok { t with state = HaveLocalPranswer; local_description = Some desc }
+
+      (* Rollback *)
+      | (HaveLocalOffer, Rollback) ->
+        Ok { t with state = Stable; local_description = None }
+
+      (* Invalid transitions *)
+      | (HaveLocalOffer, Answer) ->
+        Error (InvalidStateTransition "Cannot set local answer without remote offer")
+      | (Stable, Answer) ->
+        Error (InvalidStateTransition "Cannot set local answer without remote offer")
+      | (_, _) ->
+        Error (InvalidStateTransition
+          (Printf.sprintf "Invalid local %s in state %s"
+            (match desc.sdp_type with Offer -> "offer" | Answer -> "answer" | Pranswer -> "pranswer" | Rollback -> "rollback")
+            (state_to_string t.state)))
+
+  (** Set remote description with state transition *)
+  let set_remote_description t desc =
+    if t.state = Closed then
+      Error AlreadyClosed
+    else
+      match (t.state, desc.sdp_type) with
+      (* Receiving remote offer *)
+      | (Stable, Offer) ->
+        Ok { t with state = HaveRemoteOffer; remote_description = Some desc }
+      | (HaveRemoteOffer, Offer) ->
+        (* New offer replaces old one *)
+        Ok { t with state = HaveRemoteOffer; remote_description = Some desc }
+
+      (* Receiving remote answer *)
+      | (HaveLocalOffer, Answer) ->
+        Ok { t with state = Stable; remote_description = Some desc }
+      | (HaveRemotePranswer, Answer) ->
+        Ok { t with state = Stable; remote_description = Some desc }
+
+      (* Receiving remote pranswer *)
+      | (HaveLocalOffer, Pranswer) ->
+        Ok { t with state = HaveRemotePranswer; remote_description = Some desc }
+
+      (* Rollback *)
+      | (HaveRemoteOffer, Rollback) ->
+        Ok { t with state = Stable; remote_description = None }
+
+      (* Glare: both sides sent offers *)
+      | (HaveLocalOffer, Offer) ->
+        Error GlareDetected
+
+      (* Invalid transitions *)
+      | (Stable, Answer) ->
+        Error (InvalidStateTransition "Cannot set remote answer without local offer")
+      | (HaveRemoteOffer, Answer) ->
+        Error (InvalidStateTransition "Cannot set remote answer without local offer")
+      | (_, _) ->
+        Error (InvalidStateTransition
+          (Printf.sprintf "Invalid remote %s in state %s"
+            (match desc.sdp_type with Offer -> "offer" | Answer -> "answer" | Pranswer -> "pranswer" | Rollback -> "rollback")
+            (state_to_string t.state)))
+
+  (** Close the signaling state machine *)
+  let close t = { t with state = Closed }
+end
