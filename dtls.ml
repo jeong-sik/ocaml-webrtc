@@ -249,12 +249,16 @@ let srtp_profile_to_id = function
   | Srtp.SRTP_AES128_CM_HMAC_SHA1_32 -> 0x0002
   | Srtp.SRTP_NULL_HMAC_SHA1_80 -> 0x0005
   | Srtp.SRTP_NULL_HMAC_SHA1_32 -> 0x0006
+  | Srtp.SRTP_AEAD_AES_128_GCM -> 0x0007  (* RFC 7714 *)
+  | Srtp.SRTP_AEAD_AES_256_GCM -> 0x0008  (* RFC 7714 *)
 
 let srtp_profile_of_id = function
   | 0x0001 -> Some Srtp.SRTP_AES128_CM_HMAC_SHA1_80
   | 0x0002 -> Some Srtp.SRTP_AES128_CM_HMAC_SHA1_32
   | 0x0005 -> Some Srtp.SRTP_NULL_HMAC_SHA1_80
   | 0x0006 -> Some Srtp.SRTP_NULL_HMAC_SHA1_32
+  | 0x0007 -> Some Srtp.SRTP_AEAD_AES_128_GCM   (* RFC 7714 *)
+  | 0x0008 -> Some Srtp.SRTP_AEAD_AES_256_GCM   (* RFC 7714 *)
   | _ -> None
 
 (** {1 Default Configuration} *)

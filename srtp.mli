@@ -1,16 +1,18 @@
-(** SRTP (RFC 3711) - AES-CM + HMAC-SHA1 core primitives. *)
+(** SRTP (RFC 3711, RFC 7714) - AES-CM + HMAC-SHA1 and AES-GCM AEAD primitives. *)
 
-(** SRTP protection profiles (RFC 5764) *)
+(** SRTP protection profiles (RFC 5764, RFC 7714) *)
 type profile =
   | SRTP_AES128_CM_HMAC_SHA1_80
   | SRTP_AES128_CM_HMAC_SHA1_32
   | SRTP_NULL_HMAC_SHA1_80
   | SRTP_NULL_HMAC_SHA1_32
+  | SRTP_AEAD_AES_128_GCM  (** RFC 7714: AEAD_AES_128_GCM *)
+  | SRTP_AEAD_AES_256_GCM  (** RFC 7714: AEAD_AES_256_GCM *)
 
 (** Master key material (from DTLS-SRTP exporter). *)
 type master = {
-  key : bytes;   (** Master key, 16/24/32 bytes for AES-CM *)
-  salt : bytes;  (** Master salt, 14 bytes (112 bits) *)
+  key : bytes;   (** Master key: 16/24/32 bytes for AES-CM, 16/32 bytes for AES-GCM *)
+  salt : bytes;  (** Master salt: 14 bytes (112 bits) for AES-CM, 12 bytes for AES-GCM *)
 }
 
 (** Derived session keys for SRTP and SRTCP. *)
@@ -118,3 +120,42 @@ val unprotect_rtcp :
   keys:session_keys ->
   packet:bytes ->
   (bytes * int32, string) result
+
+(** {1 AES-GCM AEAD (RFC 7714)} *)
+
+(** Check if a profile uses AEAD (GCM). *)
+val is_aead_profile : profile -> bool
+
+(** Build SRTP AES-GCM IV/nonce (RFC 7714 Section 8.1).
+    12 bytes: salt XOR (SSRC || 00 || index) *)
+val srtp_gcm_iv :
+  salt:bytes ->
+  ssrc:int32 ->
+  index:int64 ->
+  (bytes, string) result
+
+(** Build SRTCP AES-GCM IV/nonce (RFC 7714 Section 9.1).
+    12 bytes: salt XOR (SSRC || 00 || SRTCP index) *)
+val srtcp_gcm_iv :
+  salt:bytes ->
+  ssrc:int32 ->
+  index:int32 ->
+  (bytes, string) result
+
+(** Encrypt payload using AES-GCM AEAD (RFC 7714).
+    Returns ciphertext + 16-byte authentication tag. *)
+val aes_gcm_encrypt :
+  key:bytes ->
+  iv:bytes ->
+  aad:bytes ->
+  plaintext:bytes ->
+  (bytes, string) result
+
+(** Decrypt payload using AES-GCM AEAD (RFC 7714).
+    Input is ciphertext + 16-byte authentication tag. *)
+val aes_gcm_decrypt :
+  key:bytes ->
+  iv:bytes ->
+  aad:bytes ->
+  ciphertext_and_tag:bytes ->
+  (bytes, string) result

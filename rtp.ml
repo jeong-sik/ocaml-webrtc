@@ -197,3 +197,78 @@ let decode data =
                 padding_len;
               } in
               Ok { header; payload }
+
+(** Decode only the RTP header without extracting payload.
+    Returns (header, header_length) where header_length is the offset to payload. *)
+let decode_header data =
+  let len = Bytes.length data in
+  if len < 12 then
+    Error "RTP packet too short"
+  else
+    let b0 = Bytes.get_uint8 data 0 in
+    let b1 = Bytes.get_uint8 data 1 in
+    let version = b0 lsr 6 in
+    let padding = (b0 land 0x20) <> 0 in
+    let has_extension = (b0 land 0x10) <> 0 in
+    let csrc_count = b0 land 0x0F in
+    let marker = (b1 land 0x80) <> 0 in
+    let payload_type = b1 land 0x7F in
+    if version <> 2 then
+      Error "RTP version mismatch"
+    else if len < (12 + (4 * csrc_count)) then
+      Error "RTP packet missing CSRC list"
+    else
+      let sequence = read_uint16_be data 2 in
+      let timestamp = read_uint32_be data 4 in
+      let ssrc = read_uint32_be data 8 in
+      let offset = ref 12 in
+      let csrc =
+        let rec loop acc i =
+          if i = 0 then
+            List.rev acc
+          else
+            let id = read_uint32_be data !offset in
+            offset := !offset + 4;
+            loop (id :: acc) (i - 1)
+        in
+        loop [] csrc_count
+      in
+      let extension_result =
+        if not has_extension then
+          Ok None
+        else if len < !offset + 4 then
+          Error "RTP packet missing extension header"
+        else
+          let profile = read_uint16_be data !offset in
+          let words = read_uint16_be data (!offset + 2) in
+          let ext_len = words * 4 in
+          let ext_start = !offset + 4 in
+          if len < ext_start + ext_len then
+            Error "RTP packet missing extension data"
+          else
+            let ext_data = Bytes.sub data ext_start ext_len in
+            offset := ext_start + ext_len;
+            Ok (Some { profile; data = ext_data })
+      in
+      match extension_result with
+      | Error _ as err -> err
+      | Ok ext ->
+        let header_len = !offset in
+        let padding_len =
+          if not padding then 0
+          else if len = 0 then 0
+          else Bytes.get_uint8 data (len - 1)
+        in
+        let header = {
+          version;
+          padding;
+          extension = ext;
+          marker;
+          payload_type;
+          sequence;
+          timestamp;
+          ssrc;
+          csrc;
+          padding_len;
+        } in
+        Ok (header, header_len)

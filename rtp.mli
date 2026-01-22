@@ -45,5 +45,10 @@ val encode : header -> payload:bytes -> (bytes, string) result
 (** Decode an RTP packet from bytes. *)
 val decode : bytes -> (packet, string) result
 
+(** Decode only the RTP header without extracting payload.
+    Returns (header, header_length) where header_length is the offset to payload.
+    Useful for SRTP-GCM where AAD needs exact header bytes. *)
+val decode_header : bytes -> (header * int, string) result
+
 (** Increment a 16-bit sequence number with wraparound. *)
 val next_sequence : int -> int

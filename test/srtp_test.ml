@@ -247,5 +247,195 @@ let () =
     assert_true "rtcp roundtrip" (Bytes.equal rtcp rtcp_out)
   );
 
+  section "AES-GCM AEAD (RFC 7714)";
+
+  test "GCM IV construction (SRTP)" (fun () ->
+    let salt = bytes_of_hex "000102030405060708090A0B" in  (* 12 bytes *)
+    let ssrc = 0x12345678l in
+    let index = 0x123456789ABCL in
+    let iv =
+      match Srtp.srtp_gcm_iv ~salt ~ssrc ~index with
+      | Ok v -> v
+      | Error e -> failwith e
+    in
+    (* IV = salt XOR (0x00 || 0x00 || SSRC || 0x00 || 0x00 || index[6]) *)
+    (* Build expected: 0x00 0x00 0x12 0x34 0x56 0x78 0x12 0x34 0x56 0x78 0x9A 0xBC *)
+    (* XOR with salt: 0x00 0x01 0x02 0x03 0x04 0x05 0x06 0x07 0x08 0x09 0x0A 0x0B *)
+    (* Result should be computed by XOR *)
+    assert_eq "GCM IV length" 12 (Bytes.length iv)
+  );
+
+  test "GCM IV construction (SRTCP)" (fun () ->
+    let salt = bytes_of_hex "000102030405060708090A0B" in  (* 12 bytes *)
+    let ssrc = 0x11223344l in
+    let index = 0x00001234l in
+    let iv =
+      match Srtp.srtcp_gcm_iv ~salt ~ssrc ~index with
+      | Ok v -> v
+      | Error e -> failwith e
+    in
+    assert_eq "SRTCP GCM IV length" 12 (Bytes.length iv)
+  );
+
+  test "AES-128-GCM encrypt/decrypt" (fun () ->
+    let key = bytes_of_hex "000102030405060708090A0B0C0D0E0F" in  (* 16 bytes *)
+    let iv = bytes_of_hex "000102030405060708090A0B" in  (* 12 bytes *)
+    let aad = bytes_of_hex "FEEDFACE" in
+    let plaintext = Bytes.of_string "hello-gcm" in
+    let ciphertext =
+      match Srtp.aes_gcm_encrypt ~key ~iv ~aad ~plaintext with
+      | Ok v -> v
+      | Error e -> failwith e
+    in
+    (* Ciphertext should be plaintext_len + 16 bytes (tag) *)
+    assert_eq "ciphertext length" (Bytes.length plaintext + 16) (Bytes.length ciphertext);
+    let decrypted =
+      match Srtp.aes_gcm_decrypt ~key ~iv ~aad ~ciphertext_and_tag:ciphertext with
+      | Ok v -> v
+      | Error e -> failwith e
+    in
+    assert_true "GCM roundtrip" (Bytes.equal plaintext decrypted)
+  );
+
+  test "AES-256-GCM encrypt/decrypt" (fun () ->
+    let key = bytes_of_hex "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F" in  (* 32 bytes *)
+    let iv = bytes_of_hex "000102030405060708090A0B" in  (* 12 bytes *)
+    let aad = bytes_of_hex "FEEDFACE" in
+    let plaintext = Bytes.of_string "hello-gcm-256" in
+    let ciphertext =
+      match Srtp.aes_gcm_encrypt ~key ~iv ~aad ~plaintext with
+      | Ok v -> v
+      | Error e -> failwith e
+    in
+    assert_eq "ciphertext length" (Bytes.length plaintext + 16) (Bytes.length ciphertext);
+    let decrypted =
+      match Srtp.aes_gcm_decrypt ~key ~iv ~aad ~ciphertext_and_tag:ciphertext with
+      | Ok v -> v
+      | Error e -> failwith e
+    in
+    assert_true "GCM-256 roundtrip" (Bytes.equal plaintext decrypted)
+  );
+
+  test "GCM auth failure on tampered ciphertext" (fun () ->
+    let key = bytes_of_hex "000102030405060708090A0B0C0D0E0F" in
+    let iv = bytes_of_hex "000102030405060708090A0B" in
+    let aad = bytes_of_hex "FEEDFACE" in
+    let plaintext = Bytes.of_string "secret" in
+    let ciphertext =
+      match Srtp.aes_gcm_encrypt ~key ~iv ~aad ~plaintext with
+      | Ok v -> v
+      | Error e -> failwith e
+    in
+    (* Tamper with ciphertext *)
+    let tampered = Bytes.copy ciphertext in
+    Bytes.set_uint8 tampered 0 ((Bytes.get_uint8 tampered 0) lxor 0xFF);
+    let result = Srtp.aes_gcm_decrypt ~key ~iv ~aad ~ciphertext_and_tag:tampered in
+    match result with
+    | Ok _ -> failwith "Expected auth failure"
+    | Error _ -> ()  (* Expected *)
+  );
+
+  test "SRTP-GCM protect/unprotect (AES-128)" (fun () ->
+    (* For GCM, master salt is 12 bytes *)
+    let master_key = bytes_of_hex "E1F97A0D3E018BE0D64FA32C06DE4139" in
+    let master_salt = bytes_of_hex "0EC675AD498AFEEBB6960B3A" in  (* 12 bytes for GCM *)
+    (* Use master key directly as session key (simplified test) *)
+    let keys = {
+      Srtp.srtp_encryption_key = master_key;
+      srtp_auth_key = Bytes.empty;  (* Not used for GCM *)
+      srtp_salt_key = master_salt;
+      srtcp_encryption_key = master_key;
+      srtcp_auth_key = Bytes.empty;
+      srtcp_salt_key = master_salt;
+    } in
+
+    let header = Rtp.default_header
+      ~payload_type:111 ~sequence:0x100 ~timestamp:1234l ~ssrc:0x11223344l ()
+    in
+    let payload = Bytes.of_string "hello-srtp-gcm" in
+    let packet =
+      match Rtp.encode header ~payload with
+      | Ok p -> p
+      | Error e -> failwith e
+    in
+    let protected =
+      match Srtp.protect_rtp
+        ~profile:Srtp.SRTP_AEAD_AES_128_GCM
+        ~keys ~roc:0l ~packet with
+      | Ok p -> p
+      | Error e -> failwith e
+    in
+    (* Protected should be header + ciphertext + 16-byte tag *)
+    assert_eq "protected length" (Bytes.length packet + 16) (Bytes.length protected);
+    let decrypted =
+      match Srtp.unprotect_rtp
+        ~profile:Srtp.SRTP_AEAD_AES_128_GCM
+        ~keys ~roc:0l ~packet:protected with
+      | Ok p -> p
+      | Error e -> failwith e
+    in
+    assert_true "SRTP-GCM roundtrip" (Bytes.equal packet decrypted)
+  );
+
+  test "SRTCP-GCM protect/unprotect (AES-128)" (fun () ->
+    let master_key = bytes_of_hex "E1F97A0D3E018BE0D64FA32C06DE4139" in
+    let master_salt = bytes_of_hex "0EC675AD498AFEEBB6960B3A" in  (* 12 bytes *)
+    let keys = {
+      Srtp.srtp_encryption_key = master_key;
+      srtp_auth_key = Bytes.empty;
+      srtp_salt_key = master_salt;
+      srtcp_encryption_key = master_key;
+      srtcp_auth_key = Bytes.empty;
+      srtcp_salt_key = master_salt;
+    } in
+    let sr = Rtcp.Sender_report {
+      ssrc = 0x01020304l;
+      sender_info = {
+        ntp_sec = 1l;
+        ntp_frac = 2l;
+        rtp_timestamp = 3l;
+        packet_count = 4l;
+        octet_count = 5l;
+      };
+      report_blocks = [];
+    } in
+    let rtcp = Rtcp.encode sr in
+    let srtcp =
+      match Srtp.protect_rtcp
+        ~profile:Srtp.SRTP_AEAD_AES_128_GCM
+        ~keys ~index:1l ~encrypt:true ~packet:rtcp with
+      | Ok p -> p
+      | Error e -> failwith e
+    in
+    let (rtcp_out, index_out) =
+      match Srtp.unprotect_rtcp
+        ~profile:Srtp.SRTP_AEAD_AES_128_GCM
+        ~keys ~packet:srtcp with
+      | Ok v -> v
+      | Error e -> failwith e
+    in
+    assert_eq "SRTCP index" 1 (Int32.to_int index_out);
+    assert_true "SRTCP-GCM roundtrip" (Bytes.equal rtcp rtcp_out)
+  );
+
+  test "is_aead_profile" (fun () ->
+    assert_true "AES-128-GCM is AEAD" (Srtp.is_aead_profile Srtp.SRTP_AEAD_AES_128_GCM);
+    assert_true "AES-256-GCM is AEAD" (Srtp.is_aead_profile Srtp.SRTP_AEAD_AES_256_GCM);
+    assert_true "AES-CM is not AEAD" (not (Srtp.is_aead_profile Srtp.SRTP_AES128_CM_HMAC_SHA1_80))
+  );
+
+  test "GCM profile params" (fun () ->
+    let params128 = Srtp.params_of_profile Srtp.SRTP_AEAD_AES_128_GCM in
+    assert_eq "GCM-128 key len" 16 params128.cipher_key_len;
+    assert_eq "GCM-128 salt len" 12 params128.cipher_salt_len;
+    assert_eq "GCM-128 auth key len" 0 params128.auth_key_len;
+    assert_eq "GCM-128 tag len" 16 params128.srtp_auth_tag_len;
+
+    let params256 = Srtp.params_of_profile Srtp.SRTP_AEAD_AES_256_GCM in
+    assert_eq "GCM-256 key len" 32 params256.cipher_key_len;
+    assert_eq "GCM-256 salt len" 12 params256.cipher_salt_len;
+    assert_eq "GCM-256 tag len" 16 params256.srtp_auth_tag_len
+  );
+
   Printf.printf "\nPassed: %d, Failed: %d\n%!" !passed !failed;
   if !failed > 0 then exit 1
