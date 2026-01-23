@@ -17,29 +17,29 @@
 
 (** DTLS content types *)
 type content_type =
-  | ChangeCipherSpec  (** 20 *)
-  | Alert             (** 21 *)
-  | Handshake         (** 22 *)
-  | ApplicationData   (** 23 *)
+  | ChangeCipherSpec (** 20 *)
+  | Alert (** 21 *)
+  | Handshake (** 22 *)
+  | ApplicationData (** 23 *)
 
 (** Handshake message types *)
 type handshake_type =
-  | HelloRequest        (** 0 *)
-  | ClientHello         (** 1 *)
-  | ServerHello         (** 2 *)
-  | HelloVerifyRequest  (** 3 - DTLS specific *)
-  | Certificate         (** 11 *)
-  | ServerKeyExchange   (** 12 *)
-  | CertificateRequest  (** 13 *)
-  | ServerHelloDone     (** 14 *)
-  | CertificateVerify   (** 15 *)
-  | ClientKeyExchange   (** 16 *)
-  | Finished            (** 20 *)
+  | HelloRequest (** 0 *)
+  | ClientHello (** 1 *)
+  | ServerHello (** 2 *)
+  | HelloVerifyRequest (** 3 - DTLS specific *)
+  | Certificate (** 11 *)
+  | ServerKeyExchange (** 12 *)
+  | CertificateRequest (** 13 *)
+  | ServerHelloDone (** 14 *)
+  | CertificateVerify (** 15 *)
+  | ClientKeyExchange (** 16 *)
+  | Finished (** 20 *)
 
 (** Alert levels *)
 type alert_level =
-  | Warning   (** 1 *)
-  | Fatal     (** 2 *)
+  | Warning (** 1 *)
+  | Fatal (** 2 *)
 
 (** Alert descriptions *)
 type alert_description =
@@ -80,33 +80,33 @@ type state =
   | Closed
   | Error of string
   (* Server states *)
-  | HelloVerifySent           (** Server sent HelloVerifyRequest *)
-  | ClientHelloReceived       (** Server received valid ClientHello with cookie *)
-  | ServerFlightSent          (** Server sent ServerHello...ServerHelloDone *)
+  | HelloVerifySent (** Server sent HelloVerifyRequest *)
+  | ClientHelloReceived (** Server received valid ClientHello with cookie *)
+  | ServerFlightSent (** Server sent ServerHello...ServerHelloDone *)
   | ClientKeyExchangeReceived (** Server received ClientKeyExchange *)
 
 (** Cipher suite *)
 type cipher_suite =
-  | TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256  (** 0xC02B *)
-  | TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256    (** 0xC02F *)
-  | TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384  (** 0xC02C *)
-  | TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384    (** 0xC030 *)
+  | TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 (** 0xC02B *)
+  | TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 (** 0xC02F *)
+  | TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 (** 0xC02C *)
+  | TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 (** 0xC030 *)
 
 (** SRTP profiles negotiated via use_srtp extension (RFC 5764). *)
 type srtp_profile = Srtp.profile
 
 (** DTLS configuration *)
-type config = {
-  is_client : bool;
-  certificate : string option;      (** PEM encoded *)
-  private_key : string option;      (** PEM encoded *)
-  verify_peer : bool;
-  cipher_suites : cipher_suite list;
-  srtp_profiles : srtp_profile list;  (** Empty disables use_srtp extension *)
-  mtu : int;                        (** Maximum transmission unit *)
-  retransmit_timeout_ms : int;      (** Initial retransmit timeout *)
-  max_retransmits : int;
-}
+type config =
+  { is_client : bool
+  ; certificate : string option (** PEM encoded *)
+  ; private_key : string option (** PEM encoded *)
+  ; verify_peer : bool
+  ; cipher_suites : cipher_suite list
+  ; srtp_profiles : srtp_profile list (** Empty disables use_srtp extension *)
+  ; mtu : int (** Maximum transmission unit *)
+  ; retransmit_timeout_ms : int (** Initial retransmit timeout *)
+  ; max_retransmits : int
+  }
 
 (** DTLS context *)
 type t
@@ -134,8 +134,11 @@ val handle_record : t -> bytes -> (bytes list * bytes option, string) result
 (** Process incoming DTLS record as server with client address.
     The client_addr is needed for stateless cookie validation (DoS protection).
     Use this function for server-side processing instead of handle_record. *)
-val handle_record_as_server :
-  t -> bytes -> client_addr:(string * int) -> (bytes list * bytes option, string) result
+val handle_record_as_server
+  :  t
+  -> bytes
+  -> client_addr:string * int
+  -> (bytes list * bytes option, string) result
 
 (** Check if handshake is complete *)
 val is_established : t -> bool
@@ -155,11 +158,12 @@ val decrypt : t -> bytes -> (bytes, string) result
 
 (** Export keying material (RFC 5705).
     Used for DTLS-SRTP key derivation. *)
-val export_keying_material : t ->
-  label:string ->
-  context:bytes option ->
-  length:int ->
-  (bytes, string) result
+val export_keying_material
+  :  t
+  -> label:string
+  -> context:bytes option
+  -> length:int
+  -> (bytes, string) result
 
 (** {1 Utilities} *)
 
@@ -183,17 +187,14 @@ val pp_state : Format.formatter -> state -> unit
 (** Generate HMAC-SHA256 based cookie for HelloVerifyRequest.
     Cookie = HMAC(secret, client_ip || client_port || client_random)
     This is stateless - no connection state needed until cookie verified. *)
-val generate_cookie :
-  client_addr:(string * int) ->
-  client_random:bytes ->
-  bytes
+val generate_cookie : client_addr:string * int -> client_random:bytes -> bytes
 
 (** Verify client cookie matches expected HMAC value *)
-val verify_cookie :
-  client_addr:(string * int) ->
-  client_random:bytes ->
-  cookie:bytes ->
-  bool
+val verify_cookie
+  :  client_addr:string * int
+  -> client_random:bytes
+  -> cookie:bytes
+  -> bool
 
 (** {1 Retransmission (RFC 6347 Section 4.2.4)} *)
 
@@ -228,14 +229,14 @@ val get_retransmit_state : t -> int * int * bool
     - Eio UDP sockets (production)
     - Mock transport (testing)
     - Lwt/Unix fallback *)
-type io_ops = {
-  send: bytes -> int;         (** Send data, returns bytes sent *)
-  recv: int -> bytes;         (** Receive up to N bytes (blocking) *)
-  now: unit -> float;         (** Get current timestamp *)
-  random: int -> bytes;       (** Generate N cryptographically secure random bytes *)
-  set_timer: int -> unit;     (** Set retransmission timer (ms) *)
-  cancel_timer: unit -> unit; (** Cancel pending retransmission timer *)
-}
+type io_ops =
+  { send : bytes -> int (** Send data, returns bytes sent *)
+  ; recv : int -> bytes (** Receive up to N bytes (blocking) *)
+  ; now : unit -> float (** Get current timestamp *)
+  ; random : int -> bytes (** Generate N cryptographically secure random bytes *)
+  ; set_timer : int -> unit (** Set retransmission timer (ms) *)
+  ; cancel_timer : unit -> unit (** Cancel pending retransmission timer *)
+  }
 
 (** Default I/O ops using Unix time and Mirage_crypto random.
     send/recv are no-ops - suitable for testing only. *)
@@ -245,12 +246,12 @@ val default_io_ops : io_ops
 
 (** Effects used by DTLS for I/O *)
 type _ Effect.t +=
-  | Send : bytes -> int Effect.t      (** Send data, returns bytes sent *)
-  | Recv : int -> bytes Effect.t      (** Receive up to N bytes *)
-  | Now : float Effect.t              (** Get current time *)
-  | Random : int -> bytes Effect.t    (** Generate N random bytes *)
-  | SetTimer : int -> unit Effect.t   (** Set retransmit timer (ms) *)
-  | CancelTimer : unit Effect.t       (** Cancel pending retransmit timer *)
+  | Send : bytes -> int Effect.t (** Send data, returns bytes sent *)
+  | Recv : int -> bytes Effect.t (** Receive up to N bytes *)
+  | Now : float Effect.t (** Get current time *)
+  | Random : int -> bytes Effect.t (** Generate N random bytes *)
+  | SetTimer : int -> unit Effect.t (** Set retransmit timer (ms) *)
+  | CancelTimer : unit Effect.t (** Cancel pending retransmit timer *)
 
 (** Run DTLS code with custom I/O operations.
     This is the primary API - works with any transport implementation.

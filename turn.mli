@@ -17,65 +17,65 @@
 
 (** TURN methods (extension of STUN methods) *)
 type turn_method =
-  | Allocate          (** 0x003 - Request relay allocation *)
-  | Refresh           (** 0x004 - Refresh existing allocation *)
-  | Send              (** 0x006 - Send data indication *)
-  | Data              (** 0x007 - Data indication from peer *)
-  | CreatePermission  (** 0x008 - Create permission for peer *)
-  | ChannelBind       (** 0x009 - Bind channel number to peer *)
+  | Allocate (** 0x003 - Request relay allocation *)
+  | Refresh (** 0x004 - Refresh existing allocation *)
+  | Send (** 0x006 - Send data indication *)
+  | Data (** 0x007 - Data indication from peer *)
+  | CreatePermission (** 0x008 - Create permission for peer *)
+  | ChannelBind (** 0x009 - Bind channel number to peer *)
 
 (** TURN-specific attribute types *)
 type turn_attribute =
-  | CHANNEL_NUMBER        (** 0x000C *)
-  | LIFETIME              (** 0x000D *)
-  | XOR_PEER_ADDRESS      (** 0x0012 *)
-  | DATA                  (** 0x0013 *)
-  | XOR_RELAYED_ADDRESS   (** 0x0016 *)
-  | EVEN_PORT             (** 0x0018 *)
-  | REQUESTED_TRANSPORT   (** 0x0019 *)
-  | DONT_FRAGMENT         (** 0x001A *)
-  | RESERVATION_TOKEN     (** 0x0022 *)
+  | CHANNEL_NUMBER (** 0x000C *)
+  | LIFETIME (** 0x000D *)
+  | XOR_PEER_ADDRESS (** 0x0012 *)
+  | DATA (** 0x0013 *)
+  | XOR_RELAYED_ADDRESS (** 0x0016 *)
+  | EVEN_PORT (** 0x0018 *)
+  | REQUESTED_TRANSPORT (** 0x0019 *)
+  | DONT_FRAGMENT (** 0x001A *)
+  | RESERVATION_TOKEN (** 0x0022 *)
   (* Authentication attributes - RFC 5389 Section 15.4 *)
-  | USERNAME              (** 0x0006 *)
-  | REALM                 (** 0x0014 *)
-  | NONCE                 (** 0x0015 *)
-  | MESSAGE_INTEGRITY     (** 0x0008 *)
-  | ERROR_CODE            (** 0x0009 *)
+  | USERNAME (** 0x0006 *)
+  | REALM (** 0x0014 *)
+  | NONCE (** 0x0015 *)
+  | MESSAGE_INTEGRITY (** 0x0008 *)
+  | ERROR_CODE (** 0x0009 *)
 
 (** Transport protocol for allocation *)
 type transport =
-  | UDP   (** 17 *)
-  | TCP   (** 6 *)
+  | UDP (** 17 *)
+  | TCP (** 6 *)
 
 (** Allocation state *)
 type allocation_state =
   | Inactive
   | Allocating
-  | Active of {
-      relayed_address : string * int;  (** IP, port *)
-      lifetime : int;                   (** seconds *)
-      expiry : float;                   (** Unix timestamp *)
-    }
+  | Active of
+      { relayed_address : string * int (** IP, port *)
+      ; lifetime : int (** seconds *)
+      ; expiry : float (** Unix timestamp *)
+      }
   | Refreshing
   | Expired
 
 (** Channel binding *)
-type channel = {
-  number : int;           (** 0x4000-0x7FFF *)
-  peer_address : string * int;
-  expiry : float;
-}
+type channel =
+  { number : int (** 0x4000-0x7FFF *)
+  ; peer_address : string * int
+  ; expiry : float
+  }
 
 (** TURN client configuration *)
-type config = {
-  server_host : string;
-  server_port : int;
-  username : string;
-  password : string;
-  realm : string;
-  transport : transport;
-  lifetime : int;         (** Requested lifetime in seconds *)
-}
+type config =
+  { server_host : string
+  ; server_port : int
+  ; username : string
+  ; password : string
+  ; realm : string
+  ; transport : transport
+  ; lifetime : int (** Requested lifetime in seconds *)
+  }
 
 (** TURN client *)
 type t

@@ -31,13 +31,13 @@
 (** {1 Configuration} *)
 
 (** Pool configuration *)
-type config = {
-  buffer_size: int;   (** Size of each buffer in bytes *)
-  pool_size: int;     (** Number of buffers in pool *)
-}
+type config =
+  { buffer_size : int (** Size of each buffer in bytes *)
+  ; pool_size : int (** Number of buffers in pool *)
+  }
 
-val default_config : config
 (** Default configuration: 2048 byte buffers, 1024 buffer pool (2MB total) *)
+val default_config : config
 
 (** {1 Pool Type} *)
 
@@ -53,17 +53,16 @@ type buffer
 
 (** {1 Creation} *)
 
-val create : ?config:config -> unit -> t
 (** [create ?config ()] creates a new buffer pool.
 
     All buffers are pre-allocated at creation time, so this may take
     a moment for large pools but ensures zero allocation during operation.
 
     @param config Pool configuration (default: 2048 bytes × 1024 buffers) *)
+val create : ?config:config -> unit -> t
 
 (** {1 Allocation and Deallocation} *)
 
-val alloc : t -> buffer
 (** [alloc t] allocates a buffer from the pool.
 
     {b O(1) operation} - just pops from free list.
@@ -72,71 +71,71 @@ val alloc : t -> buffer
     Use {!get_stats} to monitor fallback rate.
 
     @return A buffer handle ready for use *)
+val alloc : t -> buffer
 
-val free : buffer -> unit
 (** [free buf] returns a buffer to its pool.
 
     {b O(1) operation} - just pushes to free list.
 
     Safe to call on fallback (heap-allocated) buffers - they are
     simply left to GC. *)
+val free : buffer -> unit
 
 (** {1 Buffer Operations} *)
 
-val get_bytes : buffer -> Bytes.t * int
 (** [get_bytes buf] returns the underlying bytes array and its capacity.
 
     Use this for direct writes. Call {!set_len} after writing.
 
     @return [(bytes, capacity)] *)
+val get_bytes : buffer -> Bytes.t * int
 
-val set_len : buffer -> int -> unit
 (** [set_len buf len] sets the used length of the buffer.
 
     Must be called after writing to indicate how much data is valid. *)
+val set_len : buffer -> int -> unit
 
-val get_len : buffer -> int
 (** [get_len buf] returns the current used length. *)
+val get_len : buffer -> int
 
-val blit_from : buffer -> src:bytes -> src_off:int -> len:int -> unit
 (** [blit_from buf ~src ~src_off ~len] copies data into the buffer.
 
     Also sets the buffer length to [len]. *)
+val blit_from : buffer -> src:bytes -> src_off:int -> len:int -> unit
 
-val blit_to : buffer -> dst:bytes -> dst_off:int -> unit
 (** [blit_to buf ~dst ~dst_off] copies buffer contents to destination.
 
     Copies [get_len buf] bytes. *)
+val blit_to : buffer -> dst:bytes -> dst_off:int -> unit
 
-val to_bytes : buffer -> bytes
 (** [to_bytes buf] extracts the used portion as a new Bytes.
 
     {b Warning}: This allocates! Use sparingly in hot paths.
     Prefer {!blit_to} when possible. *)
+val to_bytes : buffer -> bytes
 
 (** {1 Statistics} *)
 
 (** Pool statistics for monitoring *)
-type stats = {
-  total_buffers: int;    (** Total buffers in pool *)
-  free_buffers: int;     (** Currently available buffers *)
-  alloc_ops: int;        (** Total allocation operations *)
-  free_ops: int;         (** Total free operations *)
-  fallback_allocs: int;  (** Heap allocations when pool exhausted *)
-  hit_rate: float;       (** Pool hit rate (0.0-1.0) *)
-}
+type stats =
+  { total_buffers : int (** Total buffers in pool *)
+  ; free_buffers : int (** Currently available buffers *)
+  ; alloc_ops : int (** Total allocation operations *)
+  ; free_ops : int (** Total free operations *)
+  ; fallback_allocs : int (** Heap allocations when pool exhausted *)
+  ; hit_rate : float (** Pool hit rate (0.0-1.0) *)
+  }
 
-val get_stats : t -> stats
 (** [get_stats t] returns current pool statistics.
 
     Monitor [hit_rate] - if below 0.95, consider increasing pool size. *)
+val get_stats : t -> stats
 
-val stats_to_string : stats -> string
 (** [stats_to_string stats] formats stats for logging/debugging. *)
+val stats_to_string : stats -> string
 
 (** {1 RAII-style Usage} *)
 
-val with_buffer : t -> (buffer -> 'a) -> 'a
 (** [with_buffer t f] executes [f] with a buffer, auto-freeing after.
 
     Ensures buffer is returned to pool even if [f] raises an exception.
@@ -150,3 +149,4 @@ val with_buffer : t -> (buffer -> 'a) -> 'a
         process buf
       )
     ]} *)
+val with_buffer : t -> (buffer -> 'a) -> 'a

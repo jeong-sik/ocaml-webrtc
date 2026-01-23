@@ -1,42 +1,51 @@
 ; Auto-generate c_flags.sexp based on CPU architecture
 ; ARM64 (Apple Silicon): use CRC instructions
 ; x86_64: use SSE4.2 for CRC32
+
 (rule
  (targets c_flags.sexp)
  (action
-  (with-stdout-to %{targets}
-   (run sh -c "if [ \"$(uname -m)\" = 'arm64' ] || [ \"$(uname -m)\" = 'aarch64' ]; then echo '(-march=armv8-a+crc)'; else echo '(-msse4.2)'; fi"))))
+  (with-stdout-to
+   %{targets}
+   (run
+    sh
+    -c
+    "if [ \"$(uname -m)\" = 'arm64' ] || [ \"$(uname -m)\" = 'aarch64' ]; then echo '(-march=armv8-a+crc)'; else echo '(-msse4.2)'; fi"))))
 
 (library
  (name webrtc)
  (public_name ocaml-webrtc)
  (synopsis "Pure OCaml WebRTC implementation")
  (libraries
-   ; Core
-   unix
-   str
-   cstruct
-   ; Crypto
-   mirage-crypto
-   mirage-crypto-rng
-   mirage-crypto-rng.unix  ; RNG initialization (subpackage)
-   mirage-crypto-ec  ; ECDHE key exchange (RFC 8422)
-   digestif
-   x509
-   tls.unix
-   ptime.clock.os
-   ; Networking
-   ipaddr
-   ; Async (optional, for Eio backend)
-   eio
-   eio_posix
-   lwt
-   lwt.unix
- )
+  ; Core
+  unix
+  str
+  cstruct
+  ; Crypto
+  mirage-crypto
+  mirage-crypto-rng
+  mirage-crypto-rng.unix ; RNG initialization (subpackage)
+  mirage-crypto-ec ; ECDHE key exchange (RFC 8422)
+  digestif
+  x509
+  tls.unix
+  ptime.clock.os
+  ; Networking
+  ipaddr
+  ; Async (optional, for Eio backend)
+  eio
+  eio_posix
+  lwt
+  lwt.unix)
  ; C stubs for hardware-accelerated CRC32c (ARM64/x86_64)
  (foreign_stubs
-   (language c)
-   (names crc32c_stubs)
-   (flags (:standard (:include c_flags.sexp))))
- (flags (:standard -w -32-69-27-38))  ; Suppress unused warnings during development
- (preprocess (pps ppx_deriving.show ppx_deriving.eq)))
+  (language c)
+  (names crc32c_stubs)
+  (flags
+   (:standard
+    (:include c_flags.sexp))))
+ (flags
+  (:standard -w -32-69-27-38))
+ ; Suppress unused warnings during development
+ (preprocess
+  (pps ppx_deriving.show ppx_deriving.eq)))

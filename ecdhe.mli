@@ -7,10 +7,10 @@
 
 (** Named curves supported by TLS *)
 type named_curve =
-  | Secp256r1  (** P-256, NIST curve - WebRTC mandatory *)
-  | Secp384r1  (** P-384 *)
-  | Secp521r1  (** P-521 *)
-  | X25519     (** Curve25519 - modern, fast *)
+  | Secp256r1 (** P-256, NIST curve - WebRTC mandatory *)
+  | Secp384r1 (** P-384 *)
+  | Secp521r1 (** P-521 *)
+  | X25519 (** Curve25519 - modern, fast *)
 
 (** ECDHE key pair *)
 type keypair
@@ -32,7 +32,10 @@ val generate_x25519 : unit -> (keypair, string) result
 (** {1 Key Exchange} *)
 
 (** Compute shared secret (pre-master secret) from our keypair and peer's public key *)
-val compute_shared_secret : keypair:keypair -> peer_public_key:Cstruct.t -> (Cstruct.t, string) result
+val compute_shared_secret
+  :  keypair:keypair
+  -> peer_public_key:Cstruct.t
+  -> (Cstruct.t, string) result
 
 (** {1 Wire Format} *)
 
@@ -51,11 +54,11 @@ val parse_server_ecdh_params : Cstruct.t -> (named_curve * Cstruct.t, string) re
 (** {1 Finished Message} *)
 
 (** Compute verify_data for Finished message *)
-val compute_verify_data :
-  master_secret:Cstruct.t ->
-  handshake_hash:Cstruct.t ->
-  is_client:bool ->
-  Cstruct.t
+val compute_verify_data
+  :  master_secret:Cstruct.t
+  -> handshake_hash:Cstruct.t
+  -> is_client:bool
+  -> Cstruct.t
 
 (** Hash all handshake messages for Finished verification *)
 val hash_handshake_messages : Cstruct.t list -> Cstruct.t

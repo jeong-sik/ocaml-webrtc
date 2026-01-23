@@ -23,21 +23,22 @@ module Make (T : TRANSPORT) = struct
   type transport = T.t
 
   (** Convert transport to Dtls.io_ops *)
-  let to_io_ops (t : transport) : Dtls.io_ops = {
-    send = (fun data -> T.send t data);
-    recv = (fun n -> T.recv t n);
-    now = T.now;
-    random = T.random;
-    set_timer = (fun _ -> ());
-    cancel_timer = (fun () -> ());
-  }
+  let to_io_ops (t : transport) : Dtls.io_ops =
+    { send = (fun data -> T.send t data)
+    ; recv = (fun n -> T.recv t n)
+    ; now = T.now
+    ; random = T.random
+    ; set_timer = (fun _ -> ())
+    ; cancel_timer = (fun () -> ())
+    }
+  ;;
 
   (** Run DTLS with this transport *)
-  let run t f =
-    Dtls.run_with_io ~ops:(to_io_ops t) f
+  let run t f = Dtls.run_with_io ~ops:(to_io_ops t) f
 end
 
 (** Pre-instantiated for convenience *)
-module With_Mock = Make(Mock_transport)
-module With_Lwt = Make(Lwt_transport)
-module With_Eio = Make(Eio_transport)
+module With_Mock = Make (Mock_transport)
+
+module With_Lwt = Make (Lwt_transport)
+module With_Eio = Make (Eio_transport)

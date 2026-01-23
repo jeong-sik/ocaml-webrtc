@@ -11,42 +11,42 @@
 
 (** Check state per RFC 8445 Section 6.1.2.6 *)
 type check_state =
-  | Frozen      (** Initial state, waiting to be scheduled *)
-  | Waiting     (** Ready to perform check *)
+  | Frozen (** Initial state, waiting to be scheduled *)
+  | Waiting (** Ready to perform check *)
   | In_progress (** Check request sent, waiting for response *)
-  | Succeeded   (** Check completed successfully *)
-  | Failed      (** Check failed after all retries *)
+  | Succeeded (** Check completed successfully *)
+  | Failed (** Check failed after all retries *)
 
 val show_check_state : check_state -> string
 val equal_check_state : check_state -> check_state -> bool
 
 (** STUN attributes for connectivity checks *)
-type stun_attrs = {
-  username: string;
-  password: string;
-  use_candidate: bool;
-  priority: int;
-  ice_controlling: int64 option;
-  ice_controlled: int64 option;
-}
+type stun_attrs =
+  { username : string
+  ; password : string
+  ; use_candidate : bool
+  ; priority : int
+  ; ice_controlling : int64 option
+  ; ice_controlled : int64 option
+  }
 
 (** Transaction state *)
-type transaction = {
-  id: bytes;
-  attempt: int;
-  max_attempts: int;
-  rto_ms: int;
-  max_rto_ms: int;
-  sent_at: float;
-}
+type transaction =
+  { id : bytes
+  ; attempt : int
+  ; max_attempts : int
+  ; rto_ms : int
+  ; max_rto_ms : int
+  ; sent_at : float
+  }
 
 (** Check context *)
-type check_context = {
-  local_addr: string * int;
-  remote_addr: string * int;
-  stun_attrs: stun_attrs;
-  transaction: transaction;
-}
+type check_context =
+  { local_addr : string * int
+  ; remote_addr : string * int
+  ; stun_attrs : stun_attrs
+  ; transaction : transaction
+  }
 
 (** Connectivity check state machine *)
 type t
@@ -55,65 +55,66 @@ type t
 
 type input =
   | Start_check
-  | Stun_response_received of {
-      transaction_id: bytes;
-      success: bool;
-      mapped_addr: (string * int) option;
-      error_code: int option;
-    }
+  | Stun_response_received of
+      { transaction_id : bytes
+      ; success : bool
+      ; mapped_addr : (string * int) option
+      ; error_code : int option
+      }
   | Timer_fired
   | Cancel
 
 (** {1 Sans-IO Output Commands} *)
 
 type output =
-  | Send_stun_request of {
-      dest: string * int;
-      transaction_id: bytes;
-      username: string;
-      password: string;
-      use_candidate: bool;
-      priority: int;
-      ice_controlling: int64 option;
-      ice_controlled: int64 option;
-    }
-  | Set_timer of { duration_ms: int }
+  | Send_stun_request of
+      { dest : string * int
+      ; transaction_id : bytes
+      ; username : string
+      ; password : string
+      ; use_candidate : bool
+      ; priority : int
+      ; ice_controlling : int64 option
+      ; ice_controlled : int64 option
+      }
+  | Set_timer of { duration_ms : int }
   | Cancel_timer
-  | Check_completed of {
-      success: bool;
-      nominated: bool;
-      mapped_addr: (string * int) option;
-      error: string option;
-    }
+  | Check_completed of
+      { success : bool
+      ; nominated : bool
+      ; mapped_addr : (string * int) option
+      ; error : string option
+      }
   | No_op
 
 (** {1 Configuration} *)
 
 (** Timing configuration for connectivity checks *)
-type config = {
-  initial_rto_ms: int;  (** RFC 8445 Section 14.3: Initial RTO (default: 500) *)
-  max_rto_ms: int;      (** Maximum RTO after exponential backoff (default: 3000) *)
-  max_attempts: int;    (** Maximum retransmission attempts (default: 7) *)
-}
+type config =
+  { initial_rto_ms : int (** RFC 8445 Section 14.3: Initial RTO (default: 500) *)
+  ; max_rto_ms : int (** Maximum RTO after exponential backoff (default: 3000) *)
+  ; max_attempts : int (** Maximum retransmission attempts (default: 7) *)
+  }
 
 (** Default configuration per RFC 8445 recommendations *)
 val default_config : config
 
 (** {1 Creation} *)
 
-val create :
-  local_addr:(string * int) ->
-  remote_addr:(string * int) ->
-  local_ufrag:string ->
-  local_pwd:string ->
-  remote_ufrag:string ->
-  remote_pwd:string ->
-  priority:int ->
-  is_controlling:bool ->
-  tie_breaker:int64 ->
-  use_candidate:bool ->
-  ?config:config ->
-  unit -> t
+val create
+  :  local_addr:string * int
+  -> remote_addr:string * int
+  -> local_ufrag:string
+  -> local_pwd:string
+  -> remote_ufrag:string
+  -> remote_pwd:string
+  -> priority:int
+  -> is_controlling:bool
+  -> tie_breaker:int64
+  -> use_candidate:bool
+  -> ?config:config
+  -> unit
+  -> t
 
 (** {1 State Transitions} *)
 

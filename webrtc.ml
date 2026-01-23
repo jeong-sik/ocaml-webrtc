@@ -50,8 +50,13 @@
 module Stun = Stun
 module Turn = Turn
 module Ice = Ice
-module Ice_check = Ice_check  (** RFC 8445 ICE Connectivity Checks (Sans-IO) *)
+
+(** RFC 8445 ICE Connectivity Checks (Sans-IO) *)
+module Ice_check = Ice_check
+
+(** RFC 8445 ICE Connectivity Checks (Sans-IO) *)
 module Dtls = Dtls
+
 module Sctp = Sctp
 module Sdp = Sdp
 module Rtp = Rtp
@@ -59,60 +64,122 @@ module Rtcp = Rtcp
 module Srtp = Srtp
 module Dtls_srtp = Dtls_srtp
 module Media_transport = Media_transport
-module Ecdhe = Ecdhe  (** RFC 8422 ECDHE key exchange *)
-module Webrtc_crypto = Webrtc_crypto  (** TLS 1.2 PRF and AES-GCM *)
+
+(** RFC 8422 ECDHE key exchange *)
+module Ecdhe = Ecdhe
+
+(** RFC 8422 ECDHE key exchange *)
+module Webrtc_crypto = Webrtc_crypto
+(** TLS 1.2 PRF and AES-GCM *)
 
 (** {1 Transport Layers} *)
 
-module Udp_transport = Udp_transport  (** Real UDP socket I/O *)
-module Sctp_transport = Sctp_transport  (** SCTP over UDP with real network I/O *)
-module Ice_dtls_transport = Ice_dtls_transport  (** Full ICE + DTLS + SCTP WebRTC stack *)
+(** Real UDP socket I/O *)
+module Udp_transport = Udp_transport
+
+(** Real UDP socket I/O *)
+module Sctp_transport = Sctp_transport
+(** SCTP over UDP with real network I/O *)
+
+(** SCTP over UDP with real network I/O *)
+module Ice_dtls_transport = Ice_dtls_transport
+(** Full ICE + DTLS + SCTP WebRTC stack *)
 
 (** {1 Reliable Transport (Full SCTP State Machine)} *)
 
-module Sctp_reliable = Sctp_reliable  (** SACK, cwnd, retransmission *)
-module Sctp_full_transport = Sctp_full_transport  (** Complete reliable SCTP transport *)
+(** SACK, cwnd, retransmission *)
+module Sctp_reliable = Sctp_reliable
+
+(** SACK, cwnd, retransmission *)
+module Sctp_full_transport = Sctp_full_transport
+(** Complete reliable SCTP transport *)
 
 (** {1 High-Performance Data Structures} *)
 
-module Sctp_ring_buffer = Sctp_ring_buffer  (** Zero-alloc ring buffer for SCTP queue *)
-module Buffer_pool = Buffer_pool  (** Pre-allocated buffer pool for packet processing *)
+(** Zero-alloc ring buffer for SCTP queue *)
+module Sctp_ring_buffer = Sctp_ring_buffer
+
+(** Zero-alloc ring buffer for SCTP queue *)
+module Buffer_pool = Buffer_pool
+(** Pre-allocated buffer pool for packet processing *)
 
 (** {1 Sans-IO SCTP Architecture (Phase 3)} *)
 
-module Sctp_core = Sctp_core  (** Pure SCTP state machine (no I/O) *)
-module Sctp_eio = Sctp_eio  (** Eio I/O adapter for Sctp_core *)
-module Sctp_rack = Sctp_rack  (** RFC 8985 RACK loss detection *)
-module Sctp_bundling = Sctp_bundling  (** RFC 4960 §6.10 Chunk bundling *)
-module Sctp_handshake = Sctp_handshake  (** RFC 4960 §5 4-Way handshake *)
-module Sctp_heartbeat = Sctp_heartbeat  (** RFC 4960 §8.3 Path heartbeat *)
-module Sctp_error = Sctp_error  (** RFC 4960 §3.2, §3.3.10 Unknown chunk handling and ERROR chunk *)
-module Sctp_reconfig = Sctp_reconfig  (** RFC 6525 RE-CONFIG chunk helpers *)
+(** Pure SCTP state machine (no I/O) *)
+module Sctp_core = Sctp_core
+
+(** Pure SCTP state machine (no I/O) *)
+module Sctp_eio = Sctp_eio
+(** Eio I/O adapter for Sctp_core *)
+
+(** Eio I/O adapter for Sctp_core *)
+module Sctp_rack = Sctp_rack
+(** RFC 8985 RACK loss detection *)
+
+(** RFC 8985 RACK loss detection *)
+module Sctp_bundling = Sctp_bundling
+(** RFC 4960 §6.10 Chunk bundling *)
+
+(** RFC 4960 §6.10 Chunk bundling *)
+module Sctp_handshake = Sctp_handshake
+(** RFC 4960 §5 4-Way handshake *)
+
+(** RFC 4960 §5 4-Way handshake *)
+module Sctp_heartbeat = Sctp_heartbeat
+(** RFC 4960 §8.3 Path heartbeat *)
+
+(** RFC 4960 §8.3 Path heartbeat *)
+module Sctp_error = Sctp_error
+(** RFC 4960 §3.2, §3.3.10 Unknown chunk handling and ERROR chunk *)
+
+(** RFC 4960 §3.2, §3.3.10 Unknown chunk handling and ERROR chunk *)
+module Sctp_reconfig = Sctp_reconfig
+(** RFC 6525 RE-CONFIG chunk helpers *)
 
 (** {1 Advanced Features (Phase 4)} *)
 
-module Sctp_pr = Sctp_pr  (** RFC 3758 PR-SCTP Partial Reliability *)
+(** RFC 3758 PR-SCTP Partial Reliability *)
+module Sctp_pr = Sctp_pr
 
 (** {1 WebRTC DataChannel (Phase 5)} *)
 
-module Dcep = Dcep  (** RFC 8832 DataChannel Establishment Protocol *)
-module Dtls_sctp_transport = Dtls_sctp_transport  (** DTLS-encrypted SCTP transport *)
+(** RFC 8832 DataChannel Establishment Protocol *)
+module Dcep = Dcep
+
+(** RFC 8832 DataChannel Establishment Protocol *)
+module Dtls_sctp_transport = Dtls_sctp_transport
+(** DTLS-encrypted SCTP transport *)
 
 (** {1 Eio-native Async Transport (OCaml 5 Effects)} *)
 
-module Eio_udp_transport = Eio_udp_transport  (** True async UDP with Eio *)
-module Eio_sctp_full_transport = Eio_sctp_full_transport  (** Concurrent SCTP with fibers *)
+(** True async UDP with Eio *)
+module Eio_udp_transport = Eio_udp_transport
+
+(** True async UDP with Eio *)
+module Eio_sctp_full_transport = Eio_sctp_full_transport
+(** Concurrent SCTP with fibers *)
 
 (** {1 Eio Full Stack (v0.1.0)} *)
 
-module Ice_eio = Ice_eio  (** Eio-based ICE agent with fibers *)
-module Dtls_eio = Dtls_eio  (** Eio-based DTLS with timer management *)
-module Webrtc_eio = Webrtc_eio  (** Full WebRTC stack with Eio integration *)
+(** Eio-based ICE agent with fibers *)
+module Ice_eio = Ice_eio
+
+(** Eio-based ICE agent with fibers *)
+module Dtls_eio = Dtls_eio
+(** Eio-based DTLS with timer management *)
+
+(** Eio-based DTLS with timer management *)
+module Webrtc_eio = Webrtc_eio
+(** Full WebRTC stack with Eio integration *)
 
 (** {1 Functor-based Transport (v0.1.0)} *)
 
-module Transport_intf = Transport_intf  (** Swappable transport interface *)
-module Dtls_functor = Dtls_functor  (** DTLS with functor-based transport *)
+(** Swappable transport interface *)
+module Transport_intf = Transport_intf
+
+(** Swappable transport interface *)
+module Dtls_functor = Dtls_functor
+(** DTLS with functor-based transport *)
 
 (** Library version *)
 let version = "0.1.0"
