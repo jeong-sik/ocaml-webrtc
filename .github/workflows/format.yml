@@ -1,0 +1,21 @@
+name: format
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ocamlformat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5.1"
+      - name: Install formatter
+        run: opam install dune ocamlformat
+      - name: Format check
+        run: |
+          dune fmt
+          git diff --exit-code

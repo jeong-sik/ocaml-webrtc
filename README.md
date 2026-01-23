@@ -91,7 +91,7 @@ let () =
         Printf.printf "Public IP: %s:%d\n" addr.ip addr.port
       | _ -> ()
     ) response.attributes
-  | Error e -> Printf.eprintf "Error: %s\n" e
+  | Error e -> Log.error "Error: %s" e
 ```
 
 ### ICE Candidate Gathering
@@ -184,7 +184,7 @@ let () =
   let payload = Bytes.of_string "hello-media" in
   match Media_transport.protect_rtp media ~timestamp:0l ~payload () with
   | Ok packet -> ignore packet
-  | Error e -> Printf.eprintf "SRTP error: %s\n" e
+  | Error e -> Log.error "SRTP error: %s" e
 ```
 
 ## Architecture

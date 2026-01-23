@@ -50,64 +50,240 @@
  (name loop_timing)
  (libraries webrtc unix))
 
-(executable (name quick_debug) (libraries webrtc unix))
-(executable (name flight_trace) (libraries webrtc unix))
-(executable (name ring_trace) (libraries webrtc unix))
-(executable (name sack_trace) (libraries webrtc unix))
-(executable (name timeout_trace) (libraries webrtc unix))
-(executable (name ack_trace) (libraries webrtc unix))
-(executable (name packet_trace) (libraries webrtc unix))
-(executable (name timer_trace) (libraries webrtc unix))
-(executable (name immediate_trace) (libraries webrtc unix))
-(executable (name udp_trace) (libraries webrtc unix))
-(executable (name udp_stats_trace) (libraries webrtc unix))
-(executable (name udp_basic_test) (libraries webrtc unix))
-(executable (name warmup_trace) (libraries webrtc unix))
-(executable (name fine_trace) (libraries webrtc unix))
-(executable (name sack_send_trace) (libraries webrtc unix))
-(executable (name full_stats_trace) (libraries webrtc unix))
-(executable (name burst_trace) (libraries webrtc unix))
-(executable (name slow_trace) (libraries webrtc unix))
-(executable (name capped_cwnd_trace) (libraries webrtc unix))
-(executable (name send_failure_trace) (libraries webrtc unix))
-(executable (name moment_trace) (libraries webrtc unix))
-(executable (name precise_trace) (libraries webrtc unix))
-(executable (name absolute_trace) (libraries webrtc unix))
-(executable (name rtx_trace) (libraries webrtc unix))
-(executable (name udp_connectivity_test) (libraries webrtc unix))
-(executable (name boundary_trace) (libraries webrtc unix))
-(executable (name timing_trace) (libraries webrtc unix))
-(executable (name fast_rtx_trace) (libraries webrtc unix))
-(executable (name dual_stats_trace) (libraries webrtc unix))
-(executable (name sack_processing_trace) (libraries webrtc unix))
-(executable (name gap_trace) (libraries webrtc unix))
-(executable (name gap_origin_trace) (libraries webrtc unix))
-(executable (name eio_concurrent_benchmark) (libraries webrtc eio eio_main eio_posix unix))
-(executable (name verify_delivery) (libraries webrtc eio eio_main eio_posix unix))
-(executable (name honest_benchmark) (libraries webrtc eio eio_main eio_posix unix))
-(executable (name honest_blocking_benchmark) (libraries webrtc unix))
-(executable (name sansio_benchmark) (libraries webrtc unix))
-(executable (name parallel_rx_benchmark) (libraries webrtc unix threads))
-(executable (name bundling_benchmark) (libraries webrtc eio eio_main eio_posix unix))
-(executable (name rfc_compliance_test) (libraries webrtc unix))
+(executable
+ (name quick_debug)
+ (libraries webrtc unix))
+
+(executable
+ (name flight_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name ring_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name sack_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name timeout_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name ack_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name packet_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name timer_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name immediate_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name udp_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name udp_stats_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name udp_basic_test)
+ (libraries webrtc unix))
+
+(executable
+ (name warmup_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name fine_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name sack_send_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name full_stats_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name burst_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name slow_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name capped_cwnd_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name send_failure_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name moment_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name precise_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name absolute_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name rtx_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name udp_connectivity_test)
+ (libraries webrtc unix))
+
+(executable
+ (name boundary_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name timing_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name fast_rtx_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name dual_stats_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name sack_processing_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name gap_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name gap_origin_trace)
+ (libraries webrtc unix))
+
+(executable
+ (name eio_concurrent_benchmark)
+ (libraries webrtc eio eio_main eio_posix unix))
+
+(executable
+ (name verify_delivery)
+ (libraries webrtc eio eio_main eio_posix unix))
+
+(executable
+ (name honest_benchmark)
+ (libraries webrtc eio eio_main eio_posix unix))
+
+(executable
+ (name honest_blocking_benchmark)
+ (libraries webrtc unix))
+
+(executable
+ (name sansio_benchmark)
+ (libraries webrtc unix))
+
+(executable
+ (name parallel_rx_benchmark)
+ (libraries webrtc unix threads))
+
+(executable
+ (name bundling_benchmark)
+ (libraries webrtc eio eio_main eio_posix unix))
+
+(executable
+ (name rfc_compliance_test)
+ (libraries webrtc unix))
 
 ; Unit tests for individual modules
-(executable (name sctp_rack_test) (libraries webrtc unix))
-(executable (name sctp_bundling_test) (libraries webrtc unix))
-(executable (name sctp_handshake_test) (libraries webrtc unix digestif))
-(executable (name buffer_pool_test) (libraries webrtc unix))
-(executable (name sctp_error_test) (libraries webrtc unix))
-(executable (name webrtc_crypto_test) (libraries webrtc unix cstruct))
-(executable (name sctp_core_handshake_test) (libraries webrtc unix digestif))
-(executable (name dtls_handshake_test) (libraries webrtc unix digestif))
-(executable (name ice_check_test) (libraries webrtc unix))
-(executable (name ice_trickle_test) (libraries webrtc))
-(executable (name sctp_reconfig_test) (libraries webrtc))
-(executable (name rtp_test) (libraries webrtc))
-(executable (name rtcp_test) (libraries webrtc))
-(executable (name dcep_test) (libraries webrtc))
-(executable (name sdp_test) (libraries webrtc))
-(executable (name srtp_test) (libraries webrtc))
-(executable (name dtls_srtp_test) (libraries webrtc))
-(executable (name turn_rfc_test) (libraries webrtc))
-(executable (name turn_relay_smoke) (libraries webrtc))
+
+(executable
+ (name sctp_rack_test)
+ (libraries webrtc unix))
+
+(executable
+ (name sctp_bundling_test)
+ (libraries webrtc unix))
+
+(executable
+ (name sctp_handshake_test)
+ (libraries webrtc unix digestif))
+
+(executable
+ (name buffer_pool_test)
+ (libraries webrtc unix))
+
+(executable
+ (name sctp_error_test)
+ (libraries webrtc unix))
+
+(executable
+ (name webrtc_crypto_test)
+ (libraries webrtc unix cstruct))
+
+(executable
+ (name sctp_core_handshake_test)
+ (libraries webrtc unix digestif))
+
+(executable
+ (name dtls_handshake_test)
+ (libraries webrtc unix digestif))
+
+(executable
+ (name ice_check_test)
+ (libraries webrtc unix))
+
+(executable
+ (name ice_trickle_test)
+ (libraries webrtc))
+
+(executable
+ (name sctp_reconfig_test)
+ (libraries webrtc))
+
+(executable
+ (name rtp_test)
+ (libraries webrtc))
+
+(executable
+ (name rtcp_test)
+ (libraries webrtc))
+
+(executable
+ (name dcep_test)
+ (libraries webrtc))
+
+(executable
+ (name sdp_test)
+ (libraries webrtc))
+
+(executable
+ (name srtp_test)
+ (libraries webrtc))
+
+(executable
+ (name dtls_srtp_test)
+ (libraries webrtc))
+
+(executable
+ (name turn_rfc_test)
+ (libraries webrtc))
+
+(executable
+ (name turn_relay_smoke)
+ (libraries webrtc))

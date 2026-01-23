@@ -20,59 +20,52 @@ let () =
   Printf.printf "╔═══════════════════════════════════════════════════════════════╗\n";
   Printf.printf "║         ICE Candidate Gathering (RFC 8445)                   ║\n";
   Printf.printf "╚═══════════════════════════════════════════════════════════════╝\n\n";
-
   (* Create ICE agent with default config *)
   let config = Ice.default_config in
   let agent = Ice.create config in
-
   (* Get local credentials *)
-  let (ufrag, pwd) = Ice.get_local_credentials agent in
+  let ufrag, pwd = Ice.get_local_credentials agent in
   Printf.printf "Local ICE Credentials:\n";
   Printf.printf "  ice-ufrag: %s\n" ufrag;
   Printf.printf "  ice-pwd:   %s\n\n" pwd;
-
   (* Set up Trickle ICE callback *)
   Ice.on_candidate agent (fun candidate ->
     Printf.printf "★ New Candidate Found:\n";
-    Printf.printf "   Type:      %s\n" (Ice.string_of_candidate_type candidate.Ice.cand_type);
+    Printf.printf
+      "   Type:      %s\n"
+      (Ice.string_of_candidate_type candidate.Ice.cand_type);
     Printf.printf "   Address:   %s:%d\n" candidate.address candidate.port;
     Printf.printf "   Priority:  %d\n" candidate.priority;
     Printf.printf "   Foundation: %s\n" candidate.foundation;
-    begin match candidate.related_address with
-    | Some raddr ->
-      Printf.printf "   Related:   %s:%d\n"
-        raddr (Option.value ~default:0 candidate.related_port)
-    | None -> ()
-    end;
-    Printf.printf "\n"
-  );
-
+    (match candidate.related_address with
+     | Some raddr ->
+       Printf.printf
+         "   Related:   %s:%d\n"
+         raddr
+         (Option.value ~default:0 candidate.related_port)
+     | None -> ());
+    Printf.printf "\n");
   Ice.on_gathering_complete agent (fun () ->
     Printf.printf "════════════════════════════════════════════════════════════════\n";
     Printf.printf "ICE Gathering Complete!\n";
     Printf.printf "════════════════════════════════════════════════════════════════\n";
-    Printf.printf "a=end-of-candidates\n\n"
-  );
-
+    Printf.printf "a=end-of-candidates\n\n");
   Printf.printf "Starting candidate gathering...\n\n";
-
   (* Gather candidates (host + srflx + relay) *)
   Lwt_main.run (Ice.gather_candidates_full agent);
-
   (* Get all gathered candidates *)
   let candidates = Ice.get_local_candidates agent in
-
   Printf.printf "════════════════════════════════════════════════════════════════\n";
   Printf.printf "Summary: %d candidates gathered\n" (List.length candidates);
   Printf.printf "════════════════════════════════════════════════════════════════\n\n";
-
   (* Print candidates in SDP format *)
   Printf.printf "SDP Candidate Lines (a=candidate:...):\n";
   Printf.printf "───────────────────────────────────────────────────────────────\n";
-  List.iter (fun c ->
-    let sdp_cand = Sdp.ice_candidate_of_ice c in
-    Printf.printf "a=%s\n" (Sdp.candidate_to_string sdp_cand)
-  ) candidates;
-
+  List.iter
+    (fun c ->
+       let sdp_cand = Sdp.ice_candidate_of_ice c in
+       Printf.printf "a=%s\n" (Sdp.candidate_to_string sdp_cand))
+    candidates;
   Printf.printf "\n";
   Printf.printf "Tip: Copy these lines to share with remote peer\n"
+;;

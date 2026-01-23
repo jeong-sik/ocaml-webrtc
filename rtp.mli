@@ -5,39 +5,39 @@
 *)
 
 (** RTP header extension *)
-type extension = {
-  profile : int;  (** 16-bit profile-specific ID *)
-  data : bytes;   (** Extension data, length must be multiple of 4 bytes *)
-}
+type extension =
+  { profile : int (** 16-bit profile-specific ID *)
+  ; data : bytes (** Extension data, length must be multiple of 4 bytes *)
+  }
 
 (** RTP header *)
-type header = {
-  version : int;        (** 2-bit version, must be 2 *)
-  padding : bool;       (** Padding bit *)
-  extension : extension option;  (** Header extension *)
-  marker : bool;        (** Marker bit *)
-  payload_type : int;   (** 7-bit payload type *)
-  sequence : int;       (** 16-bit sequence number *)
-  timestamp : int32;    (** 32-bit timestamp *)
-  ssrc : int32;         (** 32-bit SSRC *)
-  csrc : int32 list;    (** CSRC list (0-15 items) *)
-  padding_len : int;    (** Padding length in bytes (0 if none) *)
-}
+type header =
+  { version : int (** 2-bit version, must be 2 *)
+  ; padding : bool (** Padding bit *)
+  ; extension : extension option (** Header extension *)
+  ; marker : bool (** Marker bit *)
+  ; payload_type : int (** 7-bit payload type *)
+  ; sequence : int (** 16-bit sequence number *)
+  ; timestamp : int32 (** 32-bit timestamp *)
+  ; ssrc : int32 (** 32-bit SSRC *)
+  ; csrc : int32 list (** CSRC list (0-15 items) *)
+  ; padding_len : int (** Padding length in bytes (0 if none) *)
+  }
 
 (** RTP packet *)
-type packet = {
-  header : header;
-  payload : bytes;
-}
+type packet =
+  { header : header
+  ; payload : bytes
+  }
 
 (** Create a default RTP header (version=2). *)
-val default_header :
-  ?payload_type:int ->
-  ?sequence:int ->
-  ?timestamp:int32 ->
-  ?ssrc:int32 ->
-  unit ->
-  header
+val default_header
+  :  ?payload_type:int
+  -> ?sequence:int
+  -> ?timestamp:int32
+  -> ?ssrc:int32
+  -> unit
+  -> header
 
 (** Encode an RTP header and payload into bytes. *)
 val encode : header -> payload:bytes -> (bytes, string) result

@@ -13,37 +13,37 @@ type packet_type =
   | Unknown of int
 
 (** RTCP report block *)
-type report_block = {
-  ssrc : int32;
-  fraction_lost : int;      (** 8-bit unsigned *)
-  cumulative_lost : int32;  (** 24-bit signed *)
-  highest_seq : int32;
-  jitter : int32;
-  last_sr : int32;
-  dlsr : int32;
-}
+type report_block =
+  { ssrc : int32
+  ; fraction_lost : int (** 8-bit unsigned *)
+  ; cumulative_lost : int32 (** 24-bit signed *)
+  ; highest_seq : int32
+  ; jitter : int32
+  ; last_sr : int32
+  ; dlsr : int32
+  }
 
 (** RTCP sender info *)
-type sender_info = {
-  ntp_sec : int32;
-  ntp_frac : int32;
-  rtp_timestamp : int32;
-  packet_count : int32;
-  octet_count : int32;
-}
+type sender_info =
+  { ntp_sec : int32
+  ; ntp_frac : int32
+  ; rtp_timestamp : int32
+  ; packet_count : int32
+  ; octet_count : int32
+  }
 
 (** Sender Report *)
-type sender_report = {
-  ssrc : int32;
-  sender_info : sender_info;
-  report_blocks : report_block list;
-}
+type sender_report =
+  { ssrc : int32
+  ; sender_info : sender_info
+  ; report_blocks : report_block list
+  }
 
 (** Receiver Report *)
-type receiver_report = {
-  ssrc : int32;
-  report_blocks : report_block list;
-}
+type receiver_report =
+  { ssrc : int32
+  ; report_blocks : report_block list
+  }
 
 (** SDES item type (RFC 3550). *)
 type sdes_item_type =
@@ -58,30 +58,30 @@ type sdes_item_type =
   | Unknown_item of int
 
 (** SDES item. *)
-type sdes_item = {
-  item_type : sdes_item_type;
-  value : string;
-}
+type sdes_item =
+  { item_type : sdes_item_type
+  ; value : string
+  }
 
 (** SDES chunk. *)
-type sdes_chunk = {
-  ssrc : int32;
-  items : sdes_item list;
-}
+type sdes_chunk =
+  { ssrc : int32
+  ; items : sdes_item list
+  }
 
 (** BYE packet (RFC 3550 Section 6.6). *)
-type bye_packet = {
-  ssrcs : int32 list;      (** SSRC/CSRC list (1-31 items) *)
-  reason : string option;  (** Optional reason for leaving *)
-}
+type bye_packet =
+  { ssrcs : int32 list (** SSRC/CSRC list (1-31 items) *)
+  ; reason : string option (** Optional reason for leaving *)
+  }
 
 (** APP packet (RFC 3550 Section 6.7). *)
-type app_packet = {
-  subtype : int;           (** 5-bit subtype *)
-  ssrc : int32;            (** SSRC/CSRC *)
-  name : string;           (** 4-character ASCII name *)
-  data : bytes;            (** Application-dependent data *)
-}
+type app_packet =
+  { subtype : int (** 5-bit subtype *)
+  ; ssrc : int32 (** SSRC/CSRC *)
+  ; name : string (** 4-character ASCII name *)
+  ; data : bytes (** Application-dependent data *)
+  }
 
 (** RTCP packet *)
 type packet =
@@ -115,6 +115,11 @@ val make_bye : ?reason:string -> int32 list -> packet
     @param avg_rtcp_size Average size of RTCP packets
     @param initial True for initial delay (halved)
     @return Computed interval in seconds (minimum 5s, or 2.5s if initial) *)
-val calculate_rtcp_interval :
-  members:int -> senders:int -> rtcp_bw:float ->
-  we_sent:bool -> avg_rtcp_size:float -> initial:bool -> float
+val calculate_rtcp_interval
+  :  members:int
+  -> senders:int
+  -> rtcp_bw:float
+  -> we_sent:bool
+  -> avg_rtcp_size:float
+  -> initial:bool
+  -> float

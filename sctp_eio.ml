@@ -24,27 +24,25 @@
 
 (** {1 Types} *)
 
-type timer_state = {
-  mutable active: bool;
-  mutable deadline: float;
-}
+type timer_state =
+  { mutable active : bool
+  ; mutable deadline : float
+  }
 
-type t = {
-  core: Sctp_core.t;
-  udp: Udp_transport.t;
-  recv_buffer: bytes;
-  buffer_pool: Buffer_pool.t;  (* Zero-copy buffer pool *)
-
-  (* Timer management *)
-  timers: (Sctp_core.timer_id, timer_state) Hashtbl.t;
-  mutable timer_check_interval: float;  (* How often to check timers *)
-
-  (* Callbacks for application layer *)
-  mutable on_data: (int -> bytes -> unit) option;
-  mutable on_connected: (unit -> unit) option;
-  mutable on_closed: (unit -> unit) option;
-  mutable on_error: (string -> unit) option;
-}
+type t =
+  { core : Sctp_core.t
+  ; udp : Udp_transport.t
+  ; recv_buffer : bytes
+  ; buffer_pool : Buffer_pool.t (* Zero-copy buffer pool *)
+  ; (* Timer management *)
+    timers : (Sctp_core.timer_id, timer_state) Hashtbl.t
+  ; mutable timer_check_interval : float (* How often to check timers *)
+  ; (* Callbacks for application layer *)
+    mutable on_data : (int -> bytes -> unit) option
+  ; mutable on_connected : (unit -> unit) option
+  ; mutable on_closed : (unit -> unit) option
+  ; mutable on_error : (string -> unit) option
+  }
 
 (** {1 Creation} *)
 
@@ -53,22 +51,21 @@ let create ?(config = Sctp.default_config) ?initial_tsn ~host ~port () =
   let core = Sctp_core.create ~config ?initial_tsn () in
   (* Buffer pool: 2048 buffers × 2KB = 4MB pre-allocated for high throughput *)
   let pool_config = Buffer_pool.{ buffer_size = 2048; pool_size = 2048 } in
-  {
-    core;
-    udp;
-    recv_buffer = Bytes.create 65536;
-    buffer_pool = Buffer_pool.create ~config:pool_config ();
-    timers = Hashtbl.create 8;
-    timer_check_interval = 0.010;  (* 10ms - fast timer resolution *)
-    on_data = None;
-    on_connected = None;
-    on_closed = None;
-    on_error = None;
+  { core
+  ; udp
+  ; recv_buffer = Bytes.create 65536
+  ; buffer_pool = Buffer_pool.create ~config:pool_config ()
+  ; timers = Hashtbl.create 8
+  ; timer_check_interval = 0.010
+  ; (* 10ms - fast timer resolution *)
+    on_data = None
+  ; on_connected = None
+  ; on_closed = None
+  ; on_error = None
   }
+;;
 
-let connect t ~host ~port =
-  Udp_transport.connect t.udp ~host ~port
-
+let connect t ~host ~port = Udp_transport.connect t.udp ~host ~port
 let local_endpoint t = Udp_transport.local_endpoint t.udp
 
 (** {1 Callback Registration} *)
@@ -85,22 +82,18 @@ let execute_output t output =
   match output with
   | Sctp_core.SendPacket packet ->
     (* Send UDP packet *)
-    begin match Udp_transport.send_connected t.udp ~data:packet with
-    | Ok _ -> ()
-    | Error e ->
-      Printf.eprintf "[SCTP-Eio] Send failed: %s\n%!" e
-    end
-
+    (match Udp_transport.send_connected t.udp ~data:packet with
+     | Ok _ -> ()
+     | Error e -> Log.error "[SCTP-Eio] Send failed: %s" e)
   | Sctp_core.DeliverData { stream_id; data } ->
     (* Deliver to application callback *)
-    begin match t.on_data with
-    | Some f -> f stream_id data
-    | None -> ()  (* No callback registered, data is dropped *)
-    end
-
+    (match t.on_data with
+     | Some f -> f stream_id data
+     | None -> () (* No callback registered, data is dropped *))
   | Sctp_core.SetTimer { timer; delay_ms } ->
     (* Set or update timer *)
-    let state = match Hashtbl.find_opt t.timers timer with
+    let state =
+      match Hashtbl.find_opt t.timers timer with
       | Some s -> s
       | None ->
         let s = { active = false; deadline = 0.0 } in
@@ -109,30 +102,23 @@ let execute_output t output =
     in
     state.active <- true;
     state.deadline <- Unix.gettimeofday () +. (delay_ms /. 1000.0)
-
   | Sctp_core.CancelTimer timer ->
-    begin match Hashtbl.find_opt t.timers timer with
-    | Some state -> state.active <- false
-    | None -> ()
-    end
-
+    (match Hashtbl.find_opt t.timers timer with
+     | Some state -> state.active <- false
+     | None -> ())
   | Sctp_core.ConnectionEstablished ->
-    begin match t.on_connected with
-    | Some f -> f ()
-    | None -> ()
-    end
-
+    (match t.on_connected with
+     | Some f -> f ()
+     | None -> ())
   | Sctp_core.ConnectionClosed ->
-    begin match t.on_closed with
-    | Some f -> f ()
-    | None -> ()
-    end
-
+    (match t.on_closed with
+     | Some f -> f ()
+     | None -> ())
   | Sctp_core.Error e ->
-    begin match t.on_error with
-    | Some f -> f e
-    | None -> Printf.eprintf "[SCTP-Eio] Error: %s\n%!" e
-    end
+    (match t.on_error with
+     | Some f -> f e
+     | None -> Log.error "[SCTP-Eio] Error: %s" e)
+;;
 
 (** Execute all outputs from core, then flush pending transmissions *)
 let execute_outputs t outputs =
@@ -140,6 +126,7 @@ let execute_outputs t outputs =
   (* Flush any pending SACK or bundled chunks (webrtc-rs poll_transmit pattern) *)
   let pending = Sctp_core.poll_transmit t.core in
   List.iter (execute_output t) pending
+;;
 
 (** {1 Input Processing} *)
 
@@ -147,32 +134,37 @@ let execute_outputs t outputs =
 let process_recv t packet =
   let outputs = Sctp_core.handle t.core (Sctp_core.PacketReceived packet) in
   execute_outputs t outputs
+;;
 
 (** Check and fire expired timers *)
 let check_timers t =
   let now = Unix.gettimeofday () in
-  Hashtbl.iter (fun timer_id state ->
-    if state.active && now >= state.deadline then begin
-      state.active <- false;
-      let outputs = Sctp_core.handle t.core (Sctp_core.TimerFired timer_id) in
-      execute_outputs t outputs
-    end
-  ) t.timers
+  Hashtbl.iter
+    (fun timer_id state ->
+       if state.active && now >= state.deadline
+       then (
+         state.active <- false;
+         let outputs = Sctp_core.handle t.core (Sctp_core.TimerFired timer_id) in
+         execute_outputs t outputs))
+    t.timers
+;;
 
 (** {1 Sending} *)
 
 (** Send data through SCTP (application API) *)
 let send t ~stream_id ~data =
-  let outputs = Sctp_core.handle t.core
-    (Sctp_core.UserSend { stream_id; data }) in
+  let outputs = Sctp_core.handle t.core (Sctp_core.UserSend { stream_id; data }) in
   execute_outputs t outputs;
   (* Return success/failure based on outputs *)
-  let has_error = List.exists (function
-    | Sctp_core.Error _ -> true
-    | _ -> false
-  ) outputs in
-  if has_error then Error "Send failed"
-  else Ok (Bytes.length data)
+  let has_error =
+    List.exists
+      (function
+        | Sctp_core.Error _ -> true
+        | _ -> false)
+      outputs
+  in
+  if has_error then Error "Send failed" else Ok (Bytes.length data)
+;;
 
 (** {1 Non-blocking Operations} *)
 
@@ -184,17 +176,21 @@ let try_recv t =
     process_recv t packet;
     true
   | Error _ -> false
+;;
 
 (** Tick: process pending I/O and timers (call from event loop) *)
 let tick t =
   (* Process all available incoming packets *)
-  while try_recv t do () done;
+  while try_recv t do
+    ()
+  done;
   (* Check timers *)
   check_timers t;
   (* Always flush pending transmissions (webrtc-rs pattern) *)
   (* This ensures SACKs are sent even when no new data arrives *)
   let pending = Sctp_core.poll_transmit t.core in
   List.iter (execute_output t) pending
+;;
 
 (** {1 Blocking Operations with Timeout} *)
 
@@ -206,6 +202,7 @@ let recv_timeout t ~timeout_ms =
     process_recv t packet;
     Ok ()
   | Error e -> Error e
+;;
 
 (** {1 Event Loop} *)
 
@@ -223,6 +220,7 @@ let run_loop t =
     (* Small sleep to prevent busy-waiting *)
     Unix.sleepf 0.001
   done
+;;
 
 (** {1 Lifecycle} *)
 
@@ -232,6 +230,7 @@ let close t =
   execute_outputs t outputs;
   (* Close UDP transport *)
   Udp_transport.close t.udp
+;;
 
 let is_closed t = Udp_transport.is_closed t.udp
 
@@ -244,6 +243,7 @@ let can_send t = Sctp_core.can_send t.core
 
 (** Congestion control metrics *)
 let get_cwnd t = Sctp_core.get_cwnd t.core
+
 let get_ssthresh t = Sctp_core.get_ssthresh t.core
 let get_flight_size t = Sctp_core.get_flight_size t.core
 let get_rto t = Sctp_core.get_rto t.core

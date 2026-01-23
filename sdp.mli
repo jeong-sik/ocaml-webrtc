@@ -20,16 +20,18 @@
 (** {1 Types} *)
 
 (** Network type *)
-type net_type = IN  (** Internet *)
+type net_type = IN (** Internet *)
 
 (** Address type *)
-type addr_type = IP4 | IP6
+type addr_type =
+  | IP4
+  | IP6
 
 (** Media type *)
 type media_type =
   | Audio
   | Video
-  | Application  (** DataChannel *)
+  | Application (** DataChannel *)
   | Text
   | Message
 
@@ -40,129 +42,128 @@ type protocol =
   | RTP_SAVP
   | RTP_SAVPF
   | UDP_TLS_RTP_SAVPF
-  | DTLS_SCTP       (** WebRTC DataChannel *)
-  | UDP_DTLS_SCTP   (** WebRTC DataChannel (updated) *)
+  | DTLS_SCTP (** WebRTC DataChannel *)
+  | UDP_DTLS_SCTP (** WebRTC DataChannel (updated) *)
 
 (** Connection data (c=) *)
-type connection = {
-  net_type : net_type;
-  addr_type : addr_type;
-  address : string;
-  ttl : int option;
-  num_addresses : int option;
-}
+type connection =
+  { net_type : net_type
+  ; addr_type : addr_type
+  ; address : string
+  ; ttl : int option
+  ; num_addresses : int option
+  }
 
 (** Origin (o=) *)
-type origin = {
-  username : string;
-  sess_id : string;
-  sess_version : int64;
-  net_type : net_type;
-  addr_type : addr_type;
-  unicast_address : string;
-}
+type origin =
+  { username : string
+  ; sess_id : string
+  ; sess_version : int64
+  ; net_type : net_type
+  ; addr_type : addr_type
+  ; unicast_address : string
+  }
 
 (** Bandwidth (b=) *)
-type bandwidth = {
-  bwtype : string;  (** CT, AS, TIAS, etc. *)
-  bandwidth : int;  (** kbps *)
-}
+type bandwidth =
+  { bwtype : string (** CT, AS, TIAS, etc. *)
+  ; bandwidth : int (** kbps *)
+  }
 
 (** Timing (t=) *)
-type timing = {
-  start_time : int64;
-  stop_time : int64;
-}
+type timing =
+  { start_time : int64
+  ; stop_time : int64
+  }
 
 (** ICE candidate attribute *)
-type ice_candidate = {
-  foundation : string;
-  component_id : int;
-  transport : string;
-  priority : int64;
-  address : string;
-  port : int;
-  cand_type : string;  (** host, srflx, prflx, relay *)
-  rel_addr : string option;
-  rel_port : int option;
-  extensions : (string * string) list;
-}
+type ice_candidate =
+  { foundation : string
+  ; component_id : int
+  ; transport : string
+  ; priority : int64
+  ; address : string
+  ; port : int
+  ; cand_type : string (** host, srflx, prflx, relay *)
+  ; rel_addr : string option
+  ; rel_port : int option
+  ; extensions : (string * string) list
+  }
 
 (** DTLS fingerprint *)
-type fingerprint = {
-  hash_func : string;  (** sha-256, sha-384, etc. *)
-  fingerprint : string;
-}
+type fingerprint =
+  { hash_func : string (** sha-256, sha-384, etc. *)
+  ; fingerprint : string
+  }
 
 (** RTP map (a=rtpmap) *)
-type rtpmap = {
-  payload_type : int;
-  encoding_name : string;
-  clock_rate : int;
-  encoding_params : string option;
-}
+type rtpmap =
+  { payload_type : int
+  ; encoding_name : string
+  ; clock_rate : int
+  ; encoding_params : string option
+  }
 
 (** Format parameters (a=fmtp) *)
-type fmtp = {
-  format : int;
-  parameters : string;
-}
+type fmtp =
+  { format : int
+  ; parameters : string
+  }
 
 (** SCTP map for DataChannel (a=sctpmap or a=sctp-port) *)
-type sctpmap = {
-  port : int;
-  protocol : string;  (** webrtc-datachannel *)
-  streams : int option;
-}
+type sctpmap =
+  { port : int
+  ; protocol : string (** webrtc-datachannel *)
+  ; streams : int option
+  }
 
 (** Media description (m=) *)
-type media = {
-  media_type : media_type;
-  port : int;
-  num_ports : int option;
-  protocol : protocol;
-  formats : string list;  (** payload types or formats *)
-
-  (* Attributes *)
-  connection : connection option;
-  bandwidths : bandwidth list;
-  rtpmaps : rtpmap list;
-  fmtps : fmtp list;
-  ice_ufrag : string option;
-  ice_pwd : string option;
-  ice_options : string list;
-  ice_candidates : ice_candidate list;
-  fingerprint : fingerprint option;
-  setup : string option;  (** actpass, active, passive *)
-  mid : string option;
-  sctpmap : sctpmap option;
-  max_message_size : int option;
-  direction : string option;  (** sendrecv, sendonly, recvonly, inactive *)
-  other_attrs : (string * string option) list;
-}
+type media =
+  { media_type : media_type
+  ; port : int
+  ; num_ports : int option
+  ; protocol : protocol
+  ; formats : string list (** payload types or formats *)
+  ; (* Attributes *)
+    connection : connection option
+  ; bandwidths : bandwidth list
+  ; rtpmaps : rtpmap list
+  ; fmtps : fmtp list
+  ; ice_ufrag : string option
+  ; ice_pwd : string option
+  ; ice_options : string list
+  ; ice_candidates : ice_candidate list
+  ; fingerprint : fingerprint option
+  ; setup : string option (** actpass, active, passive *)
+  ; mid : string option
+  ; sctpmap : sctpmap option
+  ; max_message_size : int option
+  ; direction : string option (** sendrecv, sendonly, recvonly, inactive *)
+  ; other_attrs : (string * string option) list
+  }
 
 (** Session description *)
-type session = {
-  version : int;              (** v= (always 0) *)
-  origin : origin;            (** o= *)
-  session_name : string;      (** s= *)
-  session_info : string option;  (** i= *)
-  uri : string option;        (** u= *)
-  emails : string list;       (** e= *)
-  phones : string list;       (** p= *)
-  connection : connection option;  (** c= *)
-  bandwidths : bandwidth list;     (** b= *)
-  timings : timing list;      (** t= *)
-  ice_lite : bool;
-  ice_ufrag : string option;
-  ice_pwd : string option;
-  ice_options : string list;
-  fingerprint : fingerprint option;
-  groups : (string * string list) list;  (** a=group *)
-  msid_semantic : (string * string list) option;
-  media : media list;         (** m= sections *)
-  other_attrs : (string * string option) list;
-}
+type session =
+  { version : int (** v= (always 0) *)
+  ; origin : origin (** o= *)
+  ; session_name : string (** s= *)
+  ; session_info : string option (** i= *)
+  ; uri : string option (** u= *)
+  ; emails : string list (** e= *)
+  ; phones : string list (** p= *)
+  ; connection : connection option (** c= *)
+  ; bandwidths : bandwidth list (** b= *)
+  ; timings : timing list (** t= *)
+  ; ice_lite : bool
+  ; ice_ufrag : string option
+  ; ice_pwd : string option
+  ; ice_options : string list
+  ; fingerprint : fingerprint option
+  ; groups : (string * string list) list (** a=group *)
+  ; msid_semantic : (string * string list) option
+  ; media : media list (** m= sections *)
+  ; other_attrs : (string * string option) list
+  }
 
 (** {1 Parsing} *)
 
@@ -195,29 +196,29 @@ val ice_candidate_to_ice : ice_candidate -> (Ice.candidate, string) result
 (** {1 Offer/Answer Helpers} *)
 
 (** Create basic offer for DataChannel *)
-val create_datachannel_offer :
-  ice_ufrag:string ->
-  ice_pwd:string ->
-  fingerprint:fingerprint ->
-  sctp_port:int ->
-  session
+val create_datachannel_offer
+  :  ice_ufrag:string
+  -> ice_pwd:string
+  -> fingerprint:fingerprint
+  -> sctp_port:int
+  -> session
 
 (** Create answer from offer *)
-val create_answer :
-  offer:session ->
-  ice_ufrag:string ->
-  ice_pwd:string ->
-  fingerprint:fingerprint ->
-  session
+val create_answer
+  :  offer:session
+  -> ice_ufrag:string
+  -> ice_pwd:string
+  -> fingerprint:fingerprint
+  -> session
 
 (** Restart ICE by updating credentials and bumping session version. *)
-val restart_ice :
-  session:session ->
-  ice_ufrag:string ->
-  ice_pwd:string ->
-  ?ice_options:string list ->
-  unit ->
-  session
+val restart_ice
+  :  session:session
+  -> ice_ufrag:string
+  -> ice_pwd:string
+  -> ?ice_options:string list
+  -> unit
+  -> session
 
 (** Add ICE candidate to session *)
 val add_candidate : session -> ice_candidate -> media_index:int -> session

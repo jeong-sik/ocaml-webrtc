@@ -23,6 +23,7 @@ let send_yield t ~data ~host ~port =
     Eio.Fiber.yield ();
     send t ~data ~host ~port
   | result -> result
+;;
 
 (** Yield-aware connected send *)
 let send_connected_yield t ~data =
@@ -31,6 +32,7 @@ let send_connected_yield t ~data =
     Eio.Fiber.yield ();
     send_connected t ~data
   | result -> result
+;;
 
 (** Yield-aware recv - yields if no data available *)
 let recv_yield t ~buf =
@@ -39,15 +41,19 @@ let recv_yield t ~buf =
     Eio.Fiber.yield ();
     recv t ~buf
   | result -> result
+;;
 
 (** Polling recv with yield - tries multiple times with yield between *)
 let recv_poll t ~buf ~max_attempts =
   let rec loop n =
-    if n <= 0 then Error "No data"
-    else match recv t ~buf with
+    if n <= 0
+    then Error "No data"
+    else (
+      match recv t ~buf with
       | Error "Would block" ->
         Eio.Fiber.yield ();
         loop (n - 1)
-      | result -> result
+      | result -> result)
   in
   loop max_attempts
+;;
