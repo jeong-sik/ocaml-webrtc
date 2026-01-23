@@ -4,6 +4,8 @@
 
 (generate_opam_files true)
 
+(license Apache-2.0)
+
 (package
  (name ocaml-webrtc)
  (synopsis "Pure OCaml WebRTC implementation")

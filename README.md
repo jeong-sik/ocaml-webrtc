@@ -3,7 +3,7 @@
 [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/jeong-sik/ocaml-webrtc)
 [![OCaml](https://img.shields.io/badge/OCaml-5.x-orange.svg)](https://ocaml.org/)
 [![Status](https://img.shields.io/badge/status-Experimental-orange.svg)]()
-[![License](https://img.shields.io/badge/license-Private-red.svg)]()
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 
 **Pure OCaml implementation of WebRTC DataChannel protocol stack.**
 
@@ -308,4 +308,4 @@ dune exec ./test/sctp_core_handshake_test.exe  # 9 tests
 
 ## License
 
-Private - All rights reserved
+Apache-2.0

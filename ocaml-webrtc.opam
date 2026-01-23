@@ -3,6 +3,7 @@ opam-version: "2.0"
 version: "0.1.0"
 synopsis: "Pure OCaml WebRTC implementation"
 description: "Complete WebRTC stack: DTLS, SCTP, ICE, STUN, TURN"
+license: "Apache-2.0"
 depends: [
   "ocaml" {>= "5.1"}
   "dune" {>= "3.13" & >= "3.13"}
