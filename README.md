@@ -306,6 +306,11 @@ dune exec ./test/sctp_core_handshake_test.exe  # 9 tests
 - [masc-mcp](https://github.com/jeong-sik/masc-mcp) - Multi-agent coordination (may use WebRTC)
 - [llm-mcp](https://github.com/jeong-sik/llm-mcp) - LLM orchestration
 
+## Development
+
+This project was developed with assistance from **Claude (Anthropic)** and other LLM tools.
+All code has been reviewed and tested by the maintainer.
+
 ## License
 
 Apache-2.0
