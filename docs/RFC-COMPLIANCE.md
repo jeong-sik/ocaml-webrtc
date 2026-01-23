@@ -79,7 +79,7 @@ Status legend:
 - SCTP stream reconfiguration (RFC 6525) full state machine + stream reset handling
 - Full SDP Offer/Answer semantics for media (audio/video)
 
-## Recent improvements (v0.6.2)
+## Recent improvements (v0.1.0)
 
 - ✅ DTLS-SRTP use_srtp extension (RFC 5764 Section 4.1.2) - profile negotiation
 - ✅ RTCP SDES/BYE packets (RFC 3550 Section 6.5, 6.6)

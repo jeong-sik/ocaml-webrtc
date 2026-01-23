@@ -13,7 +13,7 @@
       Dtls.run_with_io ~ops:io_ops (fun () -> ...)
     ]}
 
-    @since ocaml-webrtc 0.6.0
+    @since ocaml-webrtc 0.1.0
 *)
 
 open Transport_intf

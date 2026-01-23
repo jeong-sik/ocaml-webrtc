@@ -18,7 +18,7 @@
       ...
     ]}
 
-    @since ocaml-webrtc 0.6.0
+    @since ocaml-webrtc 0.1.0
 *)
 
 (** {1 Core Transport Interface} *)

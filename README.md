@@ -1,6 +1,6 @@
 # ocaml-webrtc
 
-[![Version](https://img.shields.io/badge/version-0.6.2-blue.svg)](https://github.com/jeong-sik/ocaml-webrtc)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/jeong-sik/ocaml-webrtc)
 [![OCaml](https://img.shields.io/badge/OCaml-5.x-orange.svg)](https://ocaml.org/)
 [![Status](https://img.shields.io/badge/status-Experimental-orange.svg)]()
 [![License](https://img.shields.io/badge/license-Private-red.svg)]()
@@ -13,7 +13,7 @@ No C bindings. Suitable for formal verification. Sans-IO architecture.
 > This is a research-grade implementation. APIs, behavior, and security properties are not stable.  
 > **No official benchmarks yet.** Use at your own risk.
 
-## v0.6.2 Status
+## v0.1.0 Status
 
 ### DataChannel Stack (Feature-complete, not production-ready)
 
