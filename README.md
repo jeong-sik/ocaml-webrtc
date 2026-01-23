@@ -113,8 +113,10 @@ let () =
       (Ice.string_of_candidate_type candidate.cand_type)
   );
 
-  (* Gather candidates (host + srflx + relay) *)
-  Lwt_main.run (Ice.gather_candidates_full agent);
+  (* Gather candidates using Eio *)
+  Eio_main.run @@ fun env ->
+    let clock = Eio.Stdenv.clock env in
+    Ice_eio.start_gathering agent ~clock
 
   (* Get SDP-format candidate lines *)
   List.iter (fun c ->
@@ -240,7 +242,7 @@ let step (state : t) (input : input) : t * output = ...
 
 Benefits:
 - **Testable**: No mocking needed, just call `step` with test inputs
-- **Portable**: Works with Lwt, Eio, or blocking I/O
+- **Portable**: Works with Eio or blocking I/O
 - **Verifiable**: Pure functions suitable for formal verification
 
 ## Testing
