@@ -4,7 +4,7 @@
     All I/O operations are represented as ADT values, making the code:
     - Easy to test without mocking
     - Suitable for formal verification
-    - Runtime-agnostic (works with Lwt, Eio, or blocking I/O)
+    - Runtime-agnostic (works with Eio or blocking I/O)
 *)
 
 (** {1 Types} *)

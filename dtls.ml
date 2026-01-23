@@ -2108,8 +2108,7 @@ let get_retransmit_state (t : t) =
 (** I/O operations for DTLS transport.
     This abstraction allows different transport implementations:
     - Eio UDP sockets (production)
-    - Mock transport (testing)
-    - Lwt/Unix fallback *)
+    - Mock transport (testing) *)
 type io_ops =
   { send : bytes -> int (** Send data, returns bytes sent *)
   ; recv : int -> bytes (** Receive up to N bytes (blocking) *)

@@ -1,29 +1,41 @@
 ; WebRTC Example Programs
 
-(executable
- (name stun_client)
- (libraries webrtc unix))
+; Simple logging module for examples
+(library
+ (name log)
+ (modules log))
 
 (executable
- (name ice_gathering)
- (libraries webrtc unix lwt lwt.unix))
+ (name stun_client)
+ (modules stun_client)
+ (libraries log webrtc unix))
+
+; REMOVED: ice_gathering.ml uses Lwt (use eio_datachannel instead)
+; (executable
+;  (name ice_gathering)
+;  (libraries webrtc unix lwt lwt.unix))
 
 (executable
  (name dtls_echo)
- (libraries webrtc unix))
+ (modules dtls_echo)
+ (libraries log webrtc unix))
 
 (executable
  (name media_loopback)
- (libraries webrtc unix))
+ (modules media_loopback)
+ (libraries log webrtc unix))
 
 (executable
  (name browser_media_smoke)
- (libraries webrtc unix))
+ (modules browser_media_smoke)
+ (libraries log webrtc unix))
 
-(executable
- (name datachannel)
- (libraries webrtc unix lwt lwt.unix))
+; REMOVED: datachannel.ml uses Lwt (use eio_datachannel instead)
+; (executable
+;  (name datachannel)
+;  (libraries webrtc unix lwt lwt.unix))
 
 (executable
  (name eio_datachannel)
- (libraries webrtc eio eio_main eio_posix unix))
+ (modules eio_datachannel)
+ (libraries log webrtc eio eio_main eio_posix unix))

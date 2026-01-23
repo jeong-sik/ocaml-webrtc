@@ -10,7 +10,7 @@
 
     - Unit testing without mocking (deterministic)
     - Memory efficient (str0m achieves 10MB for 1000 connections)
-    - I/O layer is swappable (Eio, Lwt, blocking)
+    - I/O layer is swappable (Eio or blocking I/O)
     - Easier to reason about correctness
 
     {1 Usage Pattern}

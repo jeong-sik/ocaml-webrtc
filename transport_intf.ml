@@ -68,43 +68,6 @@ let mock_drain (t : mock_t) =
   let q = List.rev t.send_queue in
   t.send_queue <- [];
   q
-;;
-
-(** {1 Lwt Transport} *)
-
-module Lwt_transport : sig
-  include TRANSPORT
-
-  val create : host:string -> port:int -> t Lwt.t
-end = struct
-  type t =
-    { sock : Lwt_unix.file_descr
-    ; mutable remote : Unix.sockaddr option
-    }
-
-  let create ~host ~port =
-    let open Lwt.Syntax in
-    let sock = Lwt_unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in
-    let addr = Unix.ADDR_INET (Unix.inet_addr_of_string host, port) in
-    let+ () = Lwt_unix.connect sock addr in
-    { sock; remote = Some addr }
-  ;;
-
-  let send t data =
-    match t.remote with
-    | Some _ -> Unix.send (Lwt_unix.unix_file_descr t.sock) data 0 (Bytes.length data) []
-    | None -> 0
-  ;;
-
-  let recv t n =
-    let buf = Bytes.create n in
-    let len = Unix.recv (Lwt_unix.unix_file_descr t.sock) buf 0 n [] in
-    Bytes.sub buf 0 len
-  ;;
-
-  let now () = Unix.gettimeofday ()
-  let random n = Bytes.of_string (Mirage_crypto_rng.generate n)
-end
 
 (** {1 Eio Transport (OCaml 5 native)} *)
 

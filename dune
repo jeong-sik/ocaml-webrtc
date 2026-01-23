@@ -34,9 +34,7 @@
   ipaddr
   ; Async (optional, for Eio backend)
   eio
-  eio_posix
-  lwt
-  lwt.unix)
+  eio_posix)
  ; C stubs for hardware-accelerated CRC32c (ARM64/x86_64)
  (foreign_stubs
   (language c)

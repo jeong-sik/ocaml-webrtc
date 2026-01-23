@@ -242,27 +242,6 @@ type binding_result =
   ; rtt_ms : float (** Round-trip time in milliseconds *)
   }
 
-(** Send binding request and get response (Lwt async).
-    @param server STUN server address (host:port)
-    @param timeout Timeout in seconds (default: 3.0)
-    @return Binding result or error Lwt promise *)
-val binding_request_lwt
-  :  server:string
-  -> ?timeout:float
-  -> unit
-  -> (binding_result, string) result Lwt.t
-
-(** Send binding request and get response (synchronous).
-    Blocks until response or timeout.
-    @param server STUN server address (host:port)
-    @param timeout Timeout in seconds (default: 3.0)
-    @return Binding result or error *)
-val binding_request_sync
-  :  server:string
-  -> ?timeout:float
-  -> unit
-  -> (binding_result, string) result
-
 (** {1 RFC 5766 TURN Functions} *)
 
 (** Create a TURN Allocate Request message.
@@ -324,25 +303,3 @@ val int_to_turn_error : int -> turn_error option
     @return Allocate result or error string *)
 val parse_allocate_response : message -> (allocate_result, string) result
 
-(** Send TURN Allocate request and get response (Lwt async).
-    Supports optional long-term credentials if username/credential are provided.
-    @param server TURN server address (host:port)
-    @param transport Transport protocol (17 = UDP, 6 = TCP, default: UDP)
-    @param lifetime Optional requested lifetime in seconds
-    @param timeout Timeout in seconds (default: 5.0)
-    @param username Optional TURN username (long-term credential)
-    @param credential Optional TURN password (long-term credential)
-    @param use_tls Use TLS (turns:) for TURN allocation (default: false)
-    @param tls_ca Optional CA bundle path for TLS verification
-    @return Allocate result or error Lwt promise *)
-val allocate_request_lwt
-  :  server:string
-  -> ?transport:int
-  -> ?lifetime:int
-  -> ?timeout:float
-  -> ?username:string
-  -> ?credential:string
-  -> ?use_tls:bool
-  -> ?tls_ca:string
-  -> unit
-  -> (allocate_result, string) result Lwt.t

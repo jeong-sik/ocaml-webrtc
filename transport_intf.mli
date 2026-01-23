@@ -12,9 +12,9 @@
       let received = Transport_intf.Mock_transport.recv t 1500 in
       ...
 
-      (* Production with Lwt *)
-      let%lwt t = Transport_intf.Lwt_transport.create ~host:"8.8.8.8" ~port:3478 in
-      let sent = Transport_intf.Lwt_transport.send t data in
+      (* Production with Eio *)
+      let t = Transport_intf.Eio_transport.create ~host:"8.8.8.8" ~port:3478 in
+      let sent = Transport_intf.Eio_transport.send t data in
       ...
     ]}
 
@@ -66,14 +66,6 @@ val mock_inject : mock_t -> bytes -> unit
 
 (** Drain all sent data *)
 val mock_drain : mock_t -> bytes list
-
-(** {1 Lwt Transport} *)
-
-module Lwt_transport : sig
-  include TRANSPORT
-
-  val create : host:string -> port:int -> t Lwt.t
-end
 
 (** {1 Eio Transport (OCaml 5 native)} *)
 

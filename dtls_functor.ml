@@ -40,5 +40,4 @@ end
 (** Pre-instantiated for convenience *)
 module With_Mock = Make (Mock_transport)
 
-module With_Lwt = Make (Lwt_transport)
 module With_Eio = Make (Eio_transport)
