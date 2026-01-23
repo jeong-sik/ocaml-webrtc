@@ -302,11 +302,6 @@ dune exec ./test/sctp_core_handshake_test.exe  # 9 tests
 - [ ] Peer-reflexive candidates
 - [ ] Full SDP Offer/Answer (RFC 3264)
 
-## Related Projects
-
-- [masc-mcp](https://github.com/jeong-sik/masc-mcp) - Multi-agent coordination (may use WebRTC)
-- [llm-mcp](https://github.com/jeong-sik/llm-mcp) - LLM orchestration
-
 ## Development
 
 > **🤖 LLM-First Development**
