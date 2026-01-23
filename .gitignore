@@ -5,6 +5,10 @@ _build/
 .merlin
 _opam/
 
+# Worktrees
+.worktree/
+.worktrees/
+
 # Editor
 .vscode/
 *.swp
