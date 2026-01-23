@@ -10,9 +10,9 @@
 
 No C bindings. Suitable for formal verification. Sans-IO architecture.
 
-> ⚠️ **Experimental project**  
-> This is a research-grade implementation. APIs, behavior, and security properties are not stable.  
-> **No official benchmarks yet.** Use at your own risk.
+> ⚠️ **Experimental**
+> This project is under active development. APIs may change without notice.
+> Provided "as is" without warranty. See [LICENSE](LICENSE) for details.
 
 ## v0.1.0 Status
 
