@@ -4,6 +4,7 @@
 [![OCaml](https://img.shields.io/badge/OCaml-5.x-orange.svg)](https://ocaml.org/)
 [![Status](https://img.shields.io/badge/status-Experimental-orange.svg)]()
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+[![Built with LLM](https://img.shields.io/badge/Built%20with-LLM%20Assistance-blueviolet.svg)](#development)
 
 **Pure OCaml implementation of WebRTC DataChannel protocol stack.**
 
@@ -308,8 +309,10 @@ dune exec ./test/sctp_core_handshake_test.exe  # 9 tests
 
 ## Development
 
-This project was developed with assistance from **Claude (Anthropic)** and other LLM tools.
-All code has been reviewed and tested by the maintainer.
+> **🤖 LLM-First Development**
+> This project was **fully developed with LLM assistance** (Claude, Gemini, Codex, etc.).
+> All code, documentation, and tests were generated through human-AI collaboration.
+> The maintainer reviewed, tested, and validated all outputs.
 
 ## License
 
