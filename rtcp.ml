@@ -64,10 +64,24 @@ type sdes_chunk = {
   items : sdes_item list;
 }
 
+type bye_packet = {
+  ssrcs : int32 list;
+  reason : string option;
+}
+
+type app_packet = {
+  subtype : int;
+  ssrc : int32;
+  name : string;
+  data : bytes;
+}
+
 type packet =
   | Sender_report of sender_report
   | Receiver_report of receiver_report
   | Source_description of sdes_chunk list
+  | Bye of bye_packet
+  | App of app_packet
   | Unknown_packet of packet_type * bytes
 
 let packet_type_of_int = function
@@ -268,6 +282,57 @@ let encode packet =
         ) encoded_chunks
       in
       (SDES, count, body_len, write_body)
+    | Bye bye ->
+      let count = List.length bye.ssrcs in
+      if count < 1 || count > 31 then invalid_arg "RTCP BYE ssrcs must be 1..31";
+      let ssrc_len = count * 4 in
+      let reason_len =
+        match bye.reason with
+        | None -> 0
+        | Some r ->
+          let len = String.length r in
+          if len > 255 then invalid_arg "RTCP BYE reason too long";
+          (* 1 byte length + string + padding to 32-bit boundary *)
+          let total = 1 + len in
+          let padding = (4 - (total mod 4)) mod 4 in
+          total + padding
+      in
+      let body_len = ssrc_len + reason_len in
+      let write_body buf off =
+        let pos = ref off in
+        List.iter (fun ssrc ->
+          write_uint32_be buf !pos ssrc;
+          pos := !pos + 4
+        ) bye.ssrcs;
+        match bye.reason with
+        | None -> ()
+        | Some r ->
+          let len = String.length r in
+          Bytes.set_uint8 buf !pos len;
+          Bytes.blit_string r 0 buf (!pos + 1) len;
+          (* Zero-fill padding *)
+          let total = 1 + len in
+          let padding = (4 - (total mod 4)) mod 4 in
+          for i = 0 to padding - 1 do
+            Bytes.set_uint8 buf (!pos + total + i) 0
+          done
+      in
+      (BYE, count, body_len, write_body)
+    | App app ->
+      if app.subtype < 0 || app.subtype > 31 then
+        invalid_arg "RTCP APP subtype must be 0..31";
+      if String.length app.name <> 4 then
+        invalid_arg "RTCP APP name must be exactly 4 characters";
+      let data_len = Bytes.length app.data in
+      if data_len mod 4 <> 0 then
+        invalid_arg "RTCP APP data length must be 32-bit aligned";
+      let body_len = 4 + 4 + data_len in  (* SSRC + name + data *)
+      let write_body buf off =
+        write_uint32_be buf off app.ssrc;
+        Bytes.blit_string app.name 0 buf (off + 4) 4;
+        Bytes.blit app.data 0 buf (off + 8) data_len
+      in
+      (APP, app.subtype, body_len, write_body)
     | Unknown_packet (pt, data) ->
       let body_len = Bytes.length data in
       let write_body buf off =
@@ -360,6 +425,37 @@ let decode data =
               | Ok (chunk, next) -> loop (idx + 1) next (chunk :: acc)
           in
           loop 0 body_off []
+        | BYE ->
+          let ssrc_len = count * 4 in
+          if body_len < ssrc_len then
+            Error "RTCP BYE body too short"
+          else
+            let ssrcs = ref [] in
+            for i = 0 to count - 1 do
+              let ssrc = read_uint32_be data (body_off + i * 4) in
+              ssrcs := ssrc :: !ssrcs
+            done;
+            let reason =
+              let reason_off = body_off + ssrc_len in
+              if reason_off >= body_off + body_len then
+                None
+              else
+                let len = Bytes.get_uint8 data reason_off in
+                if reason_off + 1 + len > body_off + body_len then
+                  None  (* Malformed, but be lenient *)
+                else
+                  Some (Bytes.sub_string data (reason_off + 1) len)
+            in
+            Ok (Bye { ssrcs = List.rev !ssrcs; reason })
+        | APP ->
+          if body_len < 8 then
+            Error "RTCP APP body too short"
+          else
+            let ssrc = read_uint32_be data body_off in
+            let name = Bytes.sub_string data (body_off + 4) 4 in
+            let data_len = body_len - 8 in
+            let app_data = Bytes.sub data (body_off + 8) data_len in
+            Ok (App { subtype = count; ssrc; name; data = app_data })
         | _ ->
           let body = Bytes.sub data body_off body_len in
           Ok (Unknown_packet (packet_type, body))
@@ -382,3 +478,49 @@ let decode_compound data =
         | Error _ as err -> err
   in
   loop 0 []
+
+(** Helper: Create SDES packet with a single CNAME item. *)
+let make_sdes_cname ~ssrc ~cname =
+  Source_description [{
+    ssrc;
+    items = [{ item_type = CNAME; value = cname }]
+  }]
+
+(** Helper: Create BYE packet. *)
+let make_bye ?reason ssrcs =
+  Bye { ssrcs; reason }
+
+(** Calculate RTCP transmission interval (RFC 3550 Section 6.3).
+
+    The algorithm:
+    1. If senders <= 25% of members, split bandwidth between senders/receivers
+    2. Calculate interval based on members, bandwidth, and avg packet size
+    3. Apply minimum interval (5 seconds, or 2.5 seconds if initial)
+    4. Apply randomization factor (not done here, caller should add jitter)
+*)
+let calculate_rtcp_interval ~members ~senders ~rtcp_bw ~we_sent ~avg_rtcp_size ~initial =
+  let members = float_of_int (max 1 members) in
+  let senders = float_of_int (max 0 senders) in
+
+  (* RFC 3550 Section 6.3.1: Bandwidth allocation *)
+  let (n, c) =
+    if senders <= members *. 0.25 then
+      (* Senders <= 25%: allocate 25% of RTCP bandwidth to senders *)
+      if we_sent then
+        (senders, rtcp_bw *. 0.25)
+      else
+        (members -. senders, rtcp_bw *. 0.75)
+    else
+      (* Senders > 25%: share bandwidth equally *)
+      (members, rtcp_bw)
+  in
+
+  (* Calculate interval: (avg_rtcp_size * n) / c *)
+  let interval =
+    if c <= 0.0 then 5.0
+    else (avg_rtcp_size *. n) /. c
+  in
+
+  (* Apply minimum *)
+  let t_min = if initial then 2.5 else 5.0 in
+  max interval t_min

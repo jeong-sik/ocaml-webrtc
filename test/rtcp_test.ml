@@ -87,13 +87,32 @@ let () =
     | Ok _ -> failwith "expected RR"
   );
 
+  test "APP encode/decode" (fun () ->
+    let app : Webrtc.Rtcp.app_packet = {
+      subtype = 5;
+      ssrc = 0xDEADBEEFl;
+      name = "TEST";
+      data = Bytes.of_string "appdata0";
+    } in
+    let data = Webrtc.Rtcp.encode (Webrtc.Rtcp.App app) in
+    match Webrtc.Rtcp.decode data with
+    | Error e -> failwith e
+    | Ok (Webrtc.Rtcp.App decoded) ->
+      assert_eq "subtype" 5 decoded.subtype;
+      assert_eq_i32 "ssrc" 0xDEADBEEFl decoded.ssrc;
+      assert_true "name" (decoded.name = "TEST");
+      assert_true "data" (Bytes.equal app.data decoded.data)
+    | Ok _ -> failwith "expected APP"
+  );
+
   test "Unknown packet roundtrip" (fun () ->
-    let payload = Bytes.of_string "appdata0" in
-    let data = Webrtc.Rtcp.encode (Webrtc.Rtcp.Unknown_packet (Webrtc.Rtcp.APP, payload)) in
+    (* Use XR (207) which is a known type but not yet implemented *)
+    let payload = Bytes.of_string "xrdata00" in  (* 8 bytes, 32-bit aligned *)
+    let data = Webrtc.Rtcp.encode (Webrtc.Rtcp.Unknown_packet (Webrtc.Rtcp.XR, payload)) in
     match Webrtc.Rtcp.decode data with
     | Error e -> failwith e
     | Ok (Webrtc.Rtcp.Unknown_packet (pt, body)) ->
-      assert_true "packet type" (pt = Webrtc.Rtcp.APP);
+      assert_true "packet type" (pt = Webrtc.Rtcp.XR);
       assert_true "payload" (Bytes.equal payload body)
     | Ok _ -> failwith "expected Unknown"
   );
@@ -101,7 +120,7 @@ let () =
   section "SDES (RFC 3550 Section 6.5)";
 
   test "SDES encode/decode" (fun () ->
-    let sdes : Webrtc.Rtcp.sdes = [
+    let sdes : Webrtc.Rtcp.sdes_chunk list = [
       {
         ssrc = 0xDEADBEEFl;
         items = [
@@ -110,10 +129,10 @@ let () =
         ]
       }
     ] in
-    let data = Webrtc.Rtcp.encode (Webrtc.Rtcp.Sdes sdes) in
+    let data = Webrtc.Rtcp.encode (Webrtc.Rtcp.Source_description sdes) in
     match Webrtc.Rtcp.decode data with
     | Error e -> failwith e
-    | Ok (Webrtc.Rtcp.Sdes decoded) ->
+    | Ok (Webrtc.Rtcp.Source_description decoded) ->
       assert_eq "chunk count" 1 (List.length decoded);
       let chunk = List.hd decoded in
       assert_eq_i32 "ssrc" 0xDEADBEEFl chunk.ssrc;
@@ -129,7 +148,7 @@ let () =
     let data = Webrtc.Rtcp.encode pkt in
     match Webrtc.Rtcp.decode data with
     | Error e -> failwith e
-    | Ok (Webrtc.Rtcp.Sdes chunks) ->
+    | Ok (Webrtc.Rtcp.Source_description chunks) ->
       assert_eq "chunk count" 1 (List.length chunks);
       let chunk = List.hd chunks in
       assert_eq_i32 "ssrc" 0x12345678l chunk.ssrc;

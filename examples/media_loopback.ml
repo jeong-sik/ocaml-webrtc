@@ -219,6 +219,8 @@ let run_client host port =
           | Rtcp.Sender_report _ -> "SR"
           | Rtcp.Receiver_report _ -> "RR"
           | Rtcp.Source_description _ -> "SDES"
+          | Rtcp.Bye _ -> "BYE"
+          | Rtcp.App _ -> "APP"
           | Rtcp.Unknown_packet _ -> "Unknown"
         in
         Printf.printf "Received SRTCP %s (index=%ld)\n%!" label index
