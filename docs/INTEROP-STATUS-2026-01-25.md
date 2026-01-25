@@ -40,6 +40,15 @@ All commands were run with `dune exec --root . -- ./test/<name>.exe`.
 - `examples/browser_media_smoke.exe`: requires public IP, cert/key, and a browser peer
 - Pion/aiortc interop suites: not available in this local run
 
+## TODO (Pending)
+
+- TURN relay smoke
+  - Required: `TURN_SERVER`, `TURN_USERNAME`, `TURN_PASSWORD`
+  - Optional (TLS): `TURN_TLS_CA`
+- Browser interop smoke
+  - Required: public IP, `WEBRTC_CERT_PEM`, `WEBRTC_KEY_PEM`
+  - Peer: Chrome/Firefox offer/answer
+
 ## Notes
 
 - Logs are local-only paths and are not published.
