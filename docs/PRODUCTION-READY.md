@@ -6,6 +6,8 @@
 Target: ocaml-webrtc 1.0 readiness for DataChannel + Media.
 Priority: P0 -> P1 -> P2 in order.
 
+Local verification logs (date-stamped): `docs/INTEROP-STATUS-2026-01-25.md`
+
 ## Readiness Definition
 - Browser interop: Chrome/Firefox (DataChannel + basic media)
 - NAT traversal: STUN/TURN (turn/turns) stable under loss/jitter
