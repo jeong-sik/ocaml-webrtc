@@ -4,6 +4,8 @@ Scope: ocaml-webrtc DataChannel + Media (audio + video). This tracks RFC
 coverage and links to current code/tests. It is not a certification; it is a
 gap tracker to reach 100% compliance.
 
+Verification log (local, date-stamped): `docs/INTEROP-STATUS-2026-01-25.md`
+
 Status legend:
 - implemented: code exists and basic tests cover core behavior
 - partial: code exists but major sections or tests are missing
