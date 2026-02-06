@@ -3,7 +3,8 @@
 ; Simple logging module for examples
 (library
  (name log)
- (modules log))
+ (modules log)
+ (instrumentation (backend bisect_ppx)))
 
 (executable
  (name stun_client)

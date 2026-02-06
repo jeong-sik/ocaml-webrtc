@@ -1,8 +1,8 @@
-(executable
+(test
  (name smoke_test)
  (libraries webrtc cstruct))
 
-(executable
+(test
  (name integration_test)
  (libraries webrtc cstruct digestif))
 
@@ -206,73 +206,73 @@
  (name bundling_benchmark)
  (libraries webrtc eio eio_main eio_posix unix))
 
-(executable
+(test
  (name rfc_compliance_test)
  (libraries webrtc unix))
 
 ; Unit tests for individual modules
 
-(executable
+(test
  (name sctp_rack_test)
  (libraries webrtc unix))
 
-(executable
+(test
  (name sctp_bundling_test)
  (libraries webrtc unix))
 
-(executable
+(test
  (name sctp_handshake_test)
  (libraries webrtc unix digestif))
 
-(executable
+(test
  (name buffer_pool_test)
  (libraries webrtc unix))
 
-(executable
+(test
  (name sctp_error_test)
  (libraries webrtc unix))
 
-(executable
+(test
  (name webrtc_crypto_test)
  (libraries webrtc unix cstruct))
 
-(executable
+(test
  (name sctp_core_handshake_test)
  (libraries webrtc unix digestif))
 
-(executable
+(test
  (name dtls_handshake_test)
  (libraries webrtc unix digestif))
 
-(executable
+(test
  (name ice_check_test)
  (libraries webrtc unix))
 
-(executable
+(test
  (name ice_trickle_test)
  (libraries webrtc))
 
-(executable
+(test
  (name sctp_reconfig_test)
  (libraries webrtc))
 
-(executable
+(test
  (name rtp_test)
  (libraries webrtc))
 
-(executable
+(test
  (name rtcp_test)
  (libraries webrtc))
 
-(executable
+(test
  (name dcep_test)
  (libraries webrtc))
 
-(executable
+(test
  (name sdp_test)
  (libraries webrtc))
 
-(executable
+(test
  (name srtp_test)
  (libraries webrtc))
 
@@ -281,7 +281,7 @@
 ;  (name dtls_srtp_test)
 ;  (libraries webrtc))
 
-(executable
+(test
  (name turn_rfc_test)
  (libraries webrtc))
 
