@@ -14,8 +14,8 @@ jobs:
         with:
           ocaml-compiler: "5.1"
       - name: Install formatter
-        run: opam install dune ocamlformat
+        run: opam install -y dune ocamlformat
       - name: Format check
         run: |
-          dune fmt
+          opam exec -- dune fmt
           git diff --exit-code
