@@ -294,4 +294,5 @@
  (name no_shell_test)
  (libraries unix)
  (deps ../ice.ml)
- (action (run %{exe:no_shell_test.exe} %{dep:../ice.ml})))
+ (action
+  (run %{exe:no_shell_test.exe} %{dep:../ice.ml})))

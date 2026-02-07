@@ -511,8 +511,8 @@ let get_addresses_from_ifconfig () =
            match input_line ic with
            | line -> loop (line :: acc)
            | exception End_of_file ->
-               ignore (Unix.close_process_in ic);
-               List.rev acc
+             ignore (Unix.close_process_in ic);
+             List.rev acc
          in
          Some (loop [])
        with
@@ -521,17 +521,17 @@ let get_addresses_from_ifconfig () =
      let lines =
        match read_process_lines "ifconfig" [| "ifconfig" |] with
        | Some ls -> ls
-       | None -> (
-           match read_process_lines "ip" [| "ip"; "addr" |] with
-           | Some ls -> ls
-           | None -> [])
+       | None ->
+         (match read_process_lines "ip" [| "ip"; "addr" |] with
+          | Some ls -> ls
+          | None -> [])
      in
      List.iter
        (fun line ->
-         match extract_ipv4_from_line line with
-         | Some ip when (not (is_loopback ip)) && not (is_link_local ip) ->
-             if not (List.mem ip !addresses) then addresses := ip :: !addresses
-         | _ -> ())
+          match extract_ipv4_from_line line with
+          | Some ip when (not (is_loopback ip)) && not (is_link_local ip) ->
+            if not (List.mem ip !addresses) then addresses := ip :: !addresses
+          | _ -> ())
        lines
    with
    | _ -> ());
@@ -846,6 +846,7 @@ let get_pairs agent = agent.pairs
 
 (** Get nominated pair *)
 let get_nominated_pair agent = agent.nominated_pair
+
 (** Get the best succeeded pair for nomination *)
 
 (** Get the best succeeded pair for nomination *)
