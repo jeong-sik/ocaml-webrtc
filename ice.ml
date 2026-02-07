@@ -693,6 +693,7 @@ let parse_stun_url url =
   | [ host ] -> Some (host, 3478)
   | _ -> None
 ;;
+
 (** {2 TURN Relay Candidate Gathering - RFC 5766} *)
 
 (** Parse TURN server URL to extract host, port, and credentials.
@@ -737,6 +738,7 @@ let create_relay_candidate ~component ~address ~port ~base_address ~base_port ~t
   ; extensions = []
   }
 ;;
+
 (** {1 Trickle ICE Support - RFC 8838} *)
 
 (** Calculate pair priority (RFC 8445 Section 6.1.2.3) *)
@@ -822,12 +824,13 @@ let set_end_of_candidates agent =
 (** Generate a tie-breaker value for ICE *)
 let generate_tie_breaker () = Random.int64 Int64.max_int
 
-
 (** Get all candidate pairs *)
 let get_pairs agent = agent.pairs
 
 (** Get nominated pair *)
 let get_nominated_pair agent = agent.nominated_pair
+(** Get the best succeeded pair for nomination *)
+
 (** Get the best succeeded pair for nomination *)
 let get_best_succeeded_pair agent =
   let succeeded = List.filter (fun p -> p.pair_state = Pair_succeeded) agent.pairs in
@@ -837,7 +840,6 @@ let get_best_succeeded_pair agent =
   in
   List.nth_opt sorted 0
 ;;
-
 
 (** {1 Remote Credentials} *)
 

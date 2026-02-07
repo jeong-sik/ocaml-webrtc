@@ -16,7 +16,8 @@
  (name webrtc)
  (public_name ocaml-webrtc)
  (synopsis "Pure OCaml WebRTC implementation")
- (instrumentation (backend bisect_ppx))
+ (instrumentation
+  (backend bisect_ppx))
  (libraries
   ; Core
   unix
