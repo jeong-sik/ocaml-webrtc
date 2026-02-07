@@ -1,10 +1,12 @@
 ; WebRTC Example Programs
 
 ; Simple logging module for examples
+
 (library
  (name log)
  (modules log)
- (instrumentation (backend bisect_ppx)))
+ (instrumentation
+  (backend bisect_ppx)))
 
 (executable
  (name stun_client)

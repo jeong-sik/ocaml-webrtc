@@ -68,6 +68,7 @@ let mock_drain (t : mock_t) =
   let q = List.rev t.send_queue in
   t.send_queue <- [];
   q
+;;
 
 (** {1 Eio Transport (OCaml 5 native)} *)
 
