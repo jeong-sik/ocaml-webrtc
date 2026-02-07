@@ -504,18 +504,35 @@ let extract_ipv4_from_line line =
 let get_addresses_from_ifconfig () =
   let addresses = ref [] in
   (try
-     let ic = Unix.open_process_in "ifconfig 2>/dev/null || ip addr 2>/dev/null" in
-     (try
-        while true do
-          let line = input_line ic in
-          match extract_ipv4_from_line line with
-          | Some ip when (not (is_loopback ip)) && not (is_link_local ip) ->
-            if not (List.mem ip !addresses) then addresses := ip :: !addresses
-          | _ -> ()
-        done
-      with
-      | End_of_file -> ());
-     ignore (Unix.close_process_in ic)
+     let read_process_lines prog argv =
+       try
+         let ic = Unix.open_process_args_in prog argv in
+         let rec loop acc =
+           match input_line ic with
+           | line -> loop (line :: acc)
+           | exception End_of_file ->
+               ignore (Unix.close_process_in ic);
+               List.rev acc
+         in
+         Some (loop [])
+       with
+       | _ -> None
+     in
+     let lines =
+       match read_process_lines "ifconfig" [| "ifconfig" |] with
+       | Some ls -> ls
+       | None -> (
+           match read_process_lines "ip" [| "ip"; "addr" |] with
+           | Some ls -> ls
+           | None -> [])
+     in
+     List.iter
+       (fun line ->
+         match extract_ipv4_from_line line with
+         | Some ip when (not (is_loopback ip)) && not (is_link_local ip) ->
+             if not (List.mem ip !addresses) then addresses := ip :: !addresses
+         | _ -> ())
+       lines
    with
    | _ -> ());
   !addresses
