@@ -45,7 +45,8 @@
    (:standard
     (:include c_flags.sexp))))
  (flags
-  (:standard -w -32-69-27-38))
- ; Suppress unused warnings during development
+  (:standard -w -32-69))
+ ; W32: unused value declarations are library API surface awaiting consumers
+ ; W69: unused record fields are public API awaiting downstream consumers
  (preprocess
   (pps ppx_deriving.show ppx_deriving.eq)))
