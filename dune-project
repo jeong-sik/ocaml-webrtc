@@ -13,7 +13,9 @@
  (depends
   (ocaml (>= 5.1))
   (dune (>= 3.13))
+  (ppx_deriving (>= 5.2))
   (eio (>= 1.0))
+  (eio_main (and :with-test (>= 1.0)))
   (eio_posix (>= 0.16))
   (mirage-crypto (>= 1.0.0))
   (mirage-crypto-rng (>= 1.0.0))
