@@ -83,6 +83,7 @@ type t =
   ; mutable next_stream_id : int (** Next available stream ID *)
   ; is_client : bool (** Client uses even IDs, server uses odd *)
   }
+[@@warning "-69"]
 
 (** {1 Creation} *)
 
@@ -256,7 +257,7 @@ let list_channels t =
 
 (** Get appropriate PPID for data based on channel type and data
     RFC 8831 §8: PPID values for WebRTC *)
-let ppid_for_data ~is_string channel =
+let ppid_for_data ~is_string _channel =
   let base_ppid =
     if is_string then 51l (* WebRTC String *) else 53l (* WebRTC Binary *)
   in

@@ -133,6 +133,7 @@ type handshake_state =
   ; mutable server_public_key : Cstruct.t option
   ; mutable selected_curve : Ecdhe.named_curve option
   }
+[@@warning "-69"]
 
 (** RFC 6347 Section 4.2.4: Retransmission state for flight-based reliability *)
 type retransmit_state =

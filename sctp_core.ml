@@ -152,6 +152,7 @@ type t =
     mutable pending_outputs : output list (** Non-SendPacket outputs *)
   ; mutable pending_sack_chunk : bytes option (** SACK to bundle with next DATA *)
   }
+[@@warning "-69"]
 
 (** {1 Creation} *)
 
