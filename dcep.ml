@@ -83,7 +83,6 @@ type t =
   ; mutable next_stream_id : int (** Next available stream ID *)
   ; is_client : bool (** Client uses even IDs, server uses odd *)
   }
-[@@warning "-69"]
 
 (** {1 Creation} *)
 

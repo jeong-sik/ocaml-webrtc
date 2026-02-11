@@ -38,7 +38,6 @@ type t =
   ; mutable pending_chunks : bytes list (** Chunks waiting to be bundled *)
   ; mutable pending_size : int (** Size of pending chunks *)
   }
-[@@warning "-69"]
 
 (** {1 Constants} *)
 

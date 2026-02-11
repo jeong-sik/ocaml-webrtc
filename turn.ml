@@ -83,7 +83,6 @@ type t =
   ; mutable nonce : string
   ; mutable on_data_callback : (string * int -> bytes -> unit) option
   }
-[@@warning "-69"]
 
 (** {1 Constants} *)
 

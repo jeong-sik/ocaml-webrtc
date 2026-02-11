@@ -40,7 +40,6 @@ type t =
     mutable tlp_out : bool (** TLP probe outstanding *)
   ; mutable tlp_high_seq : int32 (** Highest TSN at TLP send time *)
   }
-[@@warning "-69"]
 
 (** {1 Constants} *)
 
