@@ -218,7 +218,7 @@ let run_loop t =
     (* Check timers *)
     check_timers t;
     (* Small sleep to prevent busy-waiting *)
-    Unix.sleepf 0.001
+    Time_compat.sleep 0.001
   done
 ;;
 

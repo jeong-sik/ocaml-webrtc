@@ -266,6 +266,7 @@ let run_event_loop t ~sw:_ ~clock =
 
 (** Run WebRTC connection *)
 let run t ~sw ~net ~clock =
+  Time_compat.set_clock clock;
   (* Start connection process *)
   connect t ~sw ~net ~clock;
   (* Run event loop *)

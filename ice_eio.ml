@@ -139,7 +139,7 @@ let gather_srflx t ~stun_server ~local_addr ~local_port =
                 | _ -> None)
              | Error _ -> wait ())
           | _ ->
-            Unix.sleepf 0.010;
+            Time_compat.sleep 0.010;
             wait ())
       in
       wait ()

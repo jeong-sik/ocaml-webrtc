@@ -44,6 +44,7 @@ let bench_eio_concurrent () =
   Eio_main.run
   @@ fun env ->
   let clock = Eio.Stdenv.clock env in
+  Time_compat.set_clock clock;
   Printf.printf "\n═══ Eio Concurrent SCTP Benchmark ═══\n";
   Printf.printf "  Packet size: %d bytes\n" packet_size;
   Printf.printf "  Duration: %d seconds\n" test_duration_sec;
@@ -120,6 +121,7 @@ let bench_eio_concurrent () =
 let bench_multicore ~num_domains =
   Eio_main.run
   @@ fun env ->
+  Time_compat.set_clock (Eio.Stdenv.clock env);
   let dm = Eio.Stdenv.domain_mgr env in
   let num_domains = min num_domains (Domain.recommended_domain_count ()) in
   Printf.printf "\n═══ Multi-Domain Parallel SCTP (%d cores) ═══\n" num_domains;
@@ -132,7 +134,7 @@ let bench_multicore ~num_domains =
   let start_time = Unix.gettimeofday () in
   (* Run timer in main fiber *)
   let stop_after_duration () =
-    Unix.sleepf (float_of_int test_duration_sec);
+    Time_compat.sleep (float_of_int test_duration_sec);
     Atomic.set running false
   in
   (* Worker function for each domain *)

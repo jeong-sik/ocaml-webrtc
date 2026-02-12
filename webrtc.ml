@@ -168,6 +168,9 @@ module Dtls_eio = Dtls_eio
 module Webrtc_eio = Webrtc_eio
 (** Full WebRTC stack with Eio integration *)
 
+(** Fiber-aware sleep: Eio.Time.sleep when clock is set, Unix.sleepf otherwise *)
+module Time_compat = Time_compat
+
 (** {1 Functor-based Transport (v0.1.0)} *)
 
 (** Swappable transport interface *)
