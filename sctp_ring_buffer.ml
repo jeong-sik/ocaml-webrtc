@@ -392,6 +392,7 @@ let get_entry_info t tsn =
     @return List of chunks to retransmit
 *)
 let mark_all_for_retransmit t =
+  let now = Time_compat.now () in
   let chunks = ref [] in
   let tsn = ref t.head_tsn in
   for _ = 0 to t.count - 1 do
@@ -399,7 +400,7 @@ let mark_all_for_retransmit t =
     (match t.entries.(idx) with
      | InFlight entry ->
        entry.retransmit_count <- entry.retransmit_count + 1;
-       entry.sent_at <- Time_compat.now ();
+       entry.sent_at <- now;
        chunks := entry.chunk :: !chunks
      | _ -> ());
     tsn := Int32.succ !tsn
@@ -414,6 +415,7 @@ let mark_all_for_retransmit t =
     @return List of chunks to fast retransmit
 *)
 let get_and_clear_fast_retransmit t =
+  let now = Time_compat.now () in
   let chunks = ref [] in
   let tsn = ref t.head_tsn in
   for _ = 0 to t.count - 1 do
@@ -422,7 +424,7 @@ let get_and_clear_fast_retransmit t =
      | InFlight entry when entry.fast_retransmit ->
        entry.fast_retransmit <- false;
        entry.retransmit_count <- entry.retransmit_count + 1;
-       entry.sent_at <- Time_compat.now ();
+       entry.sent_at <- now;
        chunks := entry.chunk :: !chunks
      | _ -> ());
     tsn := Int32.succ !tsn
