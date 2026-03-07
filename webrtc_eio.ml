@@ -127,7 +127,10 @@ let set_state t new_state =
 let send_sctp_packets t outputs =
   List.iter
     (function
-      | Sctp_core.SendPacket data -> ignore (Dtls_eio.send t.dtls data)
+      | Sctp_core.SendPacket data ->
+        (match Dtls_eio.send t.dtls data with
+         | Ok _n -> ()
+         | Error e -> Logs.warn (fun m -> m "SCTP->DTLS send failed: %s" e))
       | _ -> ())
     outputs
 ;;
