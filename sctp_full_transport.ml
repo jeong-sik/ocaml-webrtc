@@ -114,7 +114,7 @@ let flush_bundle t =
        Udp_transport.send_view t.udp ~buf:t.send_buffer ~off:0 ~len:t.bundle_offset
      with
      | Ok _ -> ()
-     | Error msg -> Printf.eprintf "sctp: bundle flush failed: %s\n%!" msg);
+     | Error msg -> Log.warn "sctp: bundle flush failed: %s" msg);
     t.bundle_offset <- 0)
 ;;
 
@@ -241,7 +241,7 @@ let process_packet_view t ~buf ~off ~len =
     let sack = Sctp_reliable.generate_sack t.reliable in
     let sack_encoded = Sctp_reliable.encode_sack sack in
     Result.iter_error
-      (fun msg -> Printf.eprintf "sctp: SACK send failed: %s\n%!" msg)
+      (fun msg -> Log.warn "sctp: SACK send failed: %s" msg)
       (send_packet t sack_encoded);
     t.stats.sacks_sent <- t.stats.sacks_sent + 1;
     t.packets_since_sack <- 0;
@@ -265,7 +265,7 @@ let send_chunk_immediate t chunk =
   let total_len = t.bundle_offset + encoded_len in
   (match Udp_transport.send_view t.udp ~buf:t.send_buffer ~off:0 ~len:total_len with
    | Ok _ -> ()
-   | Error msg -> Printf.eprintf "sctp: immediate send failed: %s\n%!" msg);
+   | Error msg -> Log.warn "sctp: immediate send failed: %s" msg);
   t.bundle_offset <- 0 (* Reset bundle after sending *)
 ;;
 
@@ -314,7 +314,7 @@ let flush_pending_sack t =
     let sack = Sctp_reliable.generate_sack t.reliable in
     let sack_encoded = Sctp_reliable.encode_sack sack in
     Result.iter_error
-      (fun msg -> Printf.eprintf "sctp: pending SACK send failed: %s\n%!" msg)
+      (fun msg -> Log.warn "sctp: pending SACK send failed: %s" msg)
       (send_packet t sack_encoded);
     t.stats.sacks_sent <- t.stats.sacks_sent + 1;
     t.packets_since_sack <- 0;
