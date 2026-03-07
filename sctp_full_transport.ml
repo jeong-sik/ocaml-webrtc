@@ -110,7 +110,9 @@ let try_recv_packet t =
 let flush_bundle t =
   if t.bundle_offset > 0
   then (
-    (match Udp_transport.send_view t.udp ~buf:t.send_buffer ~off:0 ~len:t.bundle_offset with
+    (match
+       Udp_transport.send_view t.udp ~buf:t.send_buffer ~off:0 ~len:t.bundle_offset
+     with
      | Ok _ -> ()
      | Error msg -> Printf.eprintf "sctp: bundle flush failed: %s\n%!" msg);
     t.bundle_offset <- 0)
