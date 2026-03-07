@@ -146,14 +146,14 @@ let initiate_shutdown t ~cumulative_tsn =
   match t.state with
   | Active ->
     t.state <- ShutdownSent;
-    t.shutdown_sent_time <- Some (Unix.gettimeofday ());
+    t.shutdown_sent_time <- Some (Time_compat.now ());
     t.retransmit_count <- 0;
     let shutdown = { cumulative_tsn_ack = cumulative_tsn } in
     Ok (encode_shutdown shutdown)
   | ShutdownPending ->
     (* Queue drained, now send SHUTDOWN *)
     t.state <- ShutdownSent;
-    t.shutdown_sent_time <- Some (Unix.gettimeofday ());
+    t.shutdown_sent_time <- Some (Time_compat.now ());
     let shutdown = { cumulative_tsn_ack = cumulative_tsn } in
     Ok (encode_shutdown shutdown)
   | _ ->
@@ -219,7 +219,7 @@ let process_shutdown_complete t buf =
 let needs_retransmit t ~rto =
   match t.state, t.shutdown_sent_time with
   | ShutdownSent, Some sent_time ->
-    let now = Unix.gettimeofday () in
+    let now = Time_compat.now () in
     let elapsed = now -. sent_time in
     elapsed > rto && t.retransmit_count < t.max_retransmits
   | _ -> false
@@ -233,7 +233,7 @@ let retransmit_shutdown t ~cumulative_tsn =
     Error "Max shutdown retransmits exceeded")
   else (
     t.retransmit_count <- t.retransmit_count + 1;
-    t.shutdown_sent_time <- Some (Unix.gettimeofday ());
+    t.shutdown_sent_time <- Some (Time_compat.now ());
     let shutdown = { cumulative_tsn_ack = cumulative_tsn } in
     Ok (encode_shutdown shutdown))
 ;;

@@ -197,14 +197,14 @@ let pp fmt t =
 (** {1 Backward-Compatible API for sctp_reliable.ml} *)
 
 (** Record packet send (alias for on_packet_sent) *)
-let record_send t tsn = on_packet_sent t ~tsn ~size:1024 ~now:(Unix.gettimeofday ())
+let record_send t tsn = on_packet_sent t ~tsn ~size:1024 ~now:(Time_compat.now ())
 
 (** Process SACK and return (rtt_sample, lost TSNs) - RFC 8985 integration
     @param cumulative_tsn The cumulative TSN from SACK
     @param gap_blocks List of (start, end) gap blocks
     @return (rtt_sample option, lost_tsns list) *)
 let process_sack t ~cumulative_tsn ~gap_blocks =
-  let now = Unix.gettimeofday () in
+  let now = Time_compat.now () in
   (* Build list of ACKed TSNs from cumulative + gaps *)
   let acked_tsns = ref [] in
   let rtt_sample = ref None in

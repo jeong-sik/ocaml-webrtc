@@ -88,7 +88,7 @@ let enqueue t chunk =
     let entry =
       InFlight
         { chunk = { chunk with tsn }
-        ; sent_at = Unix.gettimeofday ()
+        ; sent_at = Time_compat.now ()
         ; retransmit_count = 0
         ; miss_indications = 0
         ; fast_retransmit = false
@@ -141,7 +141,7 @@ let enqueue_with_tsn t chunk =
       InFlight
         { chunk
         ; (* Keep original TSN *)
-          sent_at = Unix.gettimeofday ()
+          sent_at = Time_compat.now ()
         ; retransmit_count = 0
         ; miss_indications = 0
         ; fast_retransmit = false
@@ -226,7 +226,7 @@ let mark_retransmit t tsn =
   match t.entries.(idx) with
   | InFlight entry when entry.chunk.tsn = tsn ->
     entry.retransmit_count <- entry.retransmit_count + 1;
-    entry.sent_at <- Unix.gettimeofday ();
+    entry.sent_at <- Time_compat.now ();
     true
   | _ -> false
 ;;
@@ -399,7 +399,7 @@ let mark_all_for_retransmit t =
     (match t.entries.(idx) with
      | InFlight entry ->
        entry.retransmit_count <- entry.retransmit_count + 1;
-       entry.sent_at <- Unix.gettimeofday ();
+       entry.sent_at <- Time_compat.now ();
        chunks := entry.chunk :: !chunks
      | _ -> ());
     tsn := Int32.succ !tsn
@@ -422,7 +422,7 @@ let get_and_clear_fast_retransmit t =
      | InFlight entry when entry.fast_retransmit ->
        entry.fast_retransmit <- false;
        entry.retransmit_count <- entry.retransmit_count + 1;
-       entry.sent_at <- Unix.gettimeofday ();
+       entry.sent_at <- Time_compat.now ();
        chunks := entry.chunk :: !chunks
      | _ -> ());
     tsn := Int32.succ !tsn

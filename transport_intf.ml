@@ -57,7 +57,7 @@ module Mock_transport : TRANSPORT with type t = mock_t = struct
       if Bytes.length hd <= n then hd else Bytes.sub hd 0 n
   ;;
 
-  let now () = Unix.gettimeofday ()
+  let now () = Time_compat.now ()
   let random n = Bytes.of_string (Mirage_crypto_rng.generate n)
 end
 
@@ -96,6 +96,6 @@ end = struct
     | Error _ -> Bytes.empty
   ;;
 
-  let now () = Unix.gettimeofday ()
+  let now () = Time_compat.now ()
   let random n = Bytes.of_string (Mirage_crypto_rng.generate n)
 end

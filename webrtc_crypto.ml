@@ -174,7 +174,7 @@ let random_bytes n =
 (** Generate client/server random (32 bytes with timestamp prefix) *)
 let generate_random () =
   let buf = Cstruct.create 32 in
-  let timestamp = Int32.of_float (Unix.gettimeofday ()) in
+  let timestamp = Int32.of_float (Time_compat.now ()) in
   Cstruct.BE.set_uint32 buf 0 timestamp;
   let random_part = random_bytes 28 in
   Cstruct.blit random_part 0 buf 4 28;
