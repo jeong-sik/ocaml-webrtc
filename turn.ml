@@ -711,7 +711,7 @@ let run_with_eio ~net ~clock f =
             Some
               (fun (k : (a, _) continuation) ->
                 let _ = clock in
-                continue k (Unix.gettimeofday ()))
+                continue k (Time_compat.now ()))
           | _ -> None)
     }
 ;;

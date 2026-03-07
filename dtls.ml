@@ -2123,7 +2123,7 @@ let default_io_ops =
   { send = (fun _ -> 0)
   ; (* No-op for testing *)
     recv = (fun _ -> Bytes.empty)
-  ; now = Unix.gettimeofday
+  ; now = Time_compat.now
   ; random =
       (fun n ->
         (* Mirage_crypto_rng.generate returns string in newer versions *)

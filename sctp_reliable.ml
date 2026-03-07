@@ -391,7 +391,7 @@ let update_rto t rtt =
     Optimized with Ring Buffer for O(1) operations *)
 let process_sack t sack =
   t.stats.sacks_recv <- t.stats.sacks_recv + 1;
-  let now = Unix.gettimeofday () in
+  let now = Time_compat.now () in
   let cum_tsn = sack.cumulative_tsn_ack in
   let mtu = t.config.mtu in
   (* Process cumulative TSN ack - Ring Buffer handles marking and returns bytes+RTT *)
@@ -471,7 +471,7 @@ let check_t3_rtx_timeout t =
   match t.t3_rtx_start with
   | None -> []
   | Some start_time ->
-    let now = Unix.gettimeofday () in
+    let now = Time_compat.now () in
     if now -. start_time >= t.rto.rto
     then (
       (* Timeout! *)
@@ -513,7 +513,7 @@ let queue_data t chunk =
     (* RACK: Record send timestamp for time-based loss detection *)
     Sctp_rack.record_send t.rack chunk.Sctp.tsn;
     (* Start T3-rtx timer if not running *)
-    if t.t3_rtx_start = None then t.t3_rtx_start <- Some (Unix.gettimeofday ()))
+    if t.t3_rtx_start = None then t.t3_rtx_start <- Some (Time_compat.now ()))
 ;;
 
 (** Allocate next TSN - delegates to ring buffer *)

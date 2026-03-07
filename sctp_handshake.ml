@@ -188,7 +188,7 @@ let decode_cookie buf =
     then Error "Cookie HMAC verification failed"
     else (
       (* Check expiry *)
-      let now = Unix.gettimeofday () in
+      let now = Time_compat.now () in
       let age_ms = (now -. creation_time) *. 1000.0 in
       if age_ms > float_of_int lifespan_ms
       then Error "Cookie expired"
@@ -337,7 +337,7 @@ let server_process_init init_buf =
     in
     (* Create state cookie - encodes everything needed to recreate state *)
     let cookie =
-      { creation_time = Unix.gettimeofday ()
+      { creation_time = Time_compat.now ()
       ; lifespan_ms = cookie_lifespan_ms
       ; peer_vtag = peer_params.initiate_tag
       ; local_vtag = local_params.initiate_tag

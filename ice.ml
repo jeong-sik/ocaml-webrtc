@@ -931,7 +931,7 @@ let consent_max_failures = 6
 
 (** Record consent response received *)
 let consent_received agent =
-  let now = Unix.gettimeofday () in
+  let now = Time_compat.now () in
   agent.consent_last_received <- now;
   agent.consent_failures <- 0;
   agent.consent_expired <- false
@@ -953,7 +953,7 @@ let is_consent_valid agent =
   else if agent.consent_last_received = 0.0
   then true (* Not yet established *)
   else (
-    let now = Unix.gettimeofday () in
+    let now = Time_compat.now () in
     let elapsed = now -. agent.consent_last_received in
     elapsed < consent_timeout_s)
 ;;
@@ -965,14 +965,14 @@ let needs_consent_refresh agent =
   else if agent.consent_last_received = 0.0
   then true
   else (
-    let now = Unix.gettimeofday () in
+    let now = Time_compat.now () in
     let elapsed = now -. agent.consent_last_received in
     elapsed >= consent_refresh_interval_s)
 ;;
 
 (** Get consent status for monitoring *)
 let get_consent_status agent =
-  let now = Unix.gettimeofday () in
+  let now = Time_compat.now () in
   let time_since_last =
     if agent.consent_last_received = 0.0
     then None
@@ -1117,7 +1117,7 @@ let nominate_pair agent pair =
     @return Keepalive state
 *)
 let start_keepalive ?(interval_sec = 15.0) () =
-  Keepalive_active { last_sent = Unix.gettimeofday (); interval = interval_sec }
+  Keepalive_active { last_sent = Time_compat.now (); interval = interval_sec }
 ;;
 
 (** Check if keepalive should be sent now.
@@ -1140,7 +1140,7 @@ let is_keepalive_due state now =
 let update_keepalive_sent state =
   match state with
   | Keepalive_stopped -> Keepalive_stopped
-  | Keepalive_active ka -> Keepalive_active { ka with last_sent = Unix.gettimeofday () }
+  | Keepalive_active ka -> Keepalive_active { ka with last_sent = Time_compat.now () }
 ;;
 
 (** Handle keepalive timeout - peer may be unreachable.

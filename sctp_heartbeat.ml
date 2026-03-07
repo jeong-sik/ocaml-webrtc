@@ -158,7 +158,7 @@ let decode_heartbeat_ack buf =
 
 (** Check if it's time to send a heartbeat *)
 let should_send_heartbeat t =
-  let now = Unix.gettimeofday () in
+  let now = Time_compat.now () in
   match t.last_heartbeat_sent with
   | None -> true (* Never sent, should start *)
   | Some last ->
@@ -168,7 +168,7 @@ let should_send_heartbeat t =
 
 (** Generate and send heartbeat *)
 let generate_heartbeat t ~path_id =
-  let now = Unix.gettimeofday () in
+  let now = Time_compat.now () in
   let info = { timestamp = now; random_nonce = Random.int32 0x7FFFFFFFl; path_id } in
   t.last_heartbeat_sent <- Some now;
   t.pending_heartbeat <- Some info;
@@ -196,7 +196,7 @@ let process_heartbeat_ack t buf =
        if info.random_nonce <> pending.random_nonce
        then Error "HEARTBEAT-ACK nonce mismatch"
        else (
-         let now = Unix.gettimeofday () in
+         let now = Time_compat.now () in
          let rtt = now -. info.timestamp in
          t.last_heartbeat_acked <- Some now;
          t.pending_heartbeat <- None;

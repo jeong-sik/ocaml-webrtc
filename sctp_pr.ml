@@ -80,7 +80,7 @@ let track_message t ~tsn ~stream_id ~stream_seq ~policy =
     ; stream_id
     ; stream_seq
     ; policy
-    ; send_time = Unix.gettimeofday ()
+    ; send_time = Time_compat.now ()
     ; rtx_count = 0
     ; state = Pending
     }
@@ -115,7 +115,7 @@ let should_abandon msg =
   match msg.policy with
   | Reliable -> false
   | TimedReliability { max_lifetime_ms } ->
-    let elapsed_ms = (Unix.gettimeofday () -. msg.send_time) *. 1000.0 in
+    let elapsed_ms = (Time_compat.now () -. msg.send_time) *. 1000.0 in
     elapsed_ms > float_of_int max_lifetime_ms
   | LimitedRetransmit { max_rtx } -> msg.rtx_count >= max_rtx
 ;;

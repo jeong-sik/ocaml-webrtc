@@ -108,9 +108,9 @@ let gather_srflx t ~stun_server ~local_addr ~local_port =
       ignore (send_udp fd ~data:request_bytes ~host ~port);
       (* Wait for response with timeout (simple polling) *)
       let buf = Bytes.create 1500 in
-      let deadline = Unix.gettimeofday () +. 3.0 in
+      let deadline = Time_compat.now () +. 3.0 in
       let rec wait () =
-        if Unix.gettimeofday () >= deadline
+        if Time_compat.now () >= deadline
         then None
         else (
           match recv_udp fd ~buf with

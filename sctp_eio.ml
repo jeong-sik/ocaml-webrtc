@@ -101,7 +101,7 @@ let execute_output t output =
         s
     in
     state.active <- true;
-    state.deadline <- Unix.gettimeofday () +. (delay_ms /. 1000.0)
+    state.deadline <- Time_compat.now () +. (delay_ms /. 1000.0)
   | Sctp_core.CancelTimer timer ->
     (match Hashtbl.find_opt t.timers timer with
      | Some state -> state.active <- false
@@ -138,7 +138,7 @@ let process_recv t packet =
 
 (** Check and fire expired timers *)
 let check_timers t =
-  let now = Unix.gettimeofday () in
+  let now = Time_compat.now () in
   Hashtbl.iter
     (fun timer_id state ->
        if state.active && now >= state.deadline
