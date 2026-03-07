@@ -121,6 +121,17 @@ let set_state t new_state =
     Option.iter (fun f -> f new_state) t.on_state_change)
 ;;
 
+(** {1 Internal: Helpers} *)
+
+(** Send SCTP output packets through DTLS *)
+let send_sctp_packets t outputs =
+  List.iter
+    (function
+      | Sctp_core.SendPacket data -> ignore (Dtls_eio.send t.dtls data)
+      | _ -> ())
+    outputs
+;;
+
 (** {1 Internal: Layer Integration} *)
 
 (** Wire up DTLS to use ICE for transport *)
@@ -130,7 +141,7 @@ let connect_dtls_to_ice t =
     ~send:(fun data ->
       match Ice_eio.send t.ice data with
       | Ok _ -> ()
-      | Error _ -> ())
+      | Error e -> Logs.warn (fun m -> m "DTLS->ICE send failed: %s" e))
     ~recv:(fun () -> None)
 ;;
 
@@ -153,7 +164,7 @@ let process_sctp_packet t packet =
          | None -> () (* Unknown channel *))
       | Sctp_core.ConnectionEstablished -> set_state t Connected
       | Sctp_core.ConnectionClosed -> set_state t Closed
-      | Sctp_core.Error _e -> ()
+      | Sctp_core.Error e -> Logs.warn (fun m -> m "SCTP processing error: %s" e)
       | Sctp_core.SetTimer _ -> ()
       | Sctp_core.CancelTimer _ -> ())
     outputs
@@ -176,11 +187,7 @@ let create_datachannel t ~label =
   let outputs =
     Sctp_core.handle t.sctp (Sctp_core.UserSend { stream_id = id; data = dcep_open })
   in
-  List.iter
-    (function
-      | Sctp_core.SendPacket data -> ignore (Dtls_eio.send t.dtls data)
-      | _ -> ())
-    outputs;
+  send_sctp_packets t outputs;
   channel
 ;;
 
@@ -192,11 +199,7 @@ let send_channel t channel data =
     let outputs =
       Sctp_core.handle t.sctp (Sctp_core.UserSend { stream_id = channel.id; data })
     in
-    List.iter
-      (function
-        | Sctp_core.SendPacket packet -> ignore (Dtls_eio.send t.dtls packet)
-        | _ -> ())
-      outputs;
+    send_sctp_packets t outputs;
     Ok (Bytes.length data))
 ;;
 
@@ -236,11 +239,7 @@ let connect t ~sw ~net ~clock =
       Dtls_eio.run t.dtls ~sw ~clock ~role ~client_addr ~on_established:(fun () ->
         (* DTLS connected - start SCTP association *)
         let outputs = Sctp_core.initiate t.sctp in
-        List.iter
-          (function
-            | Sctp_core.SendPacket data -> ignore (Dtls_eio.send t.dtls data)
-            | _ -> ())
-          outputs)))
+        send_sctp_packets t outputs)))
 ;;
 
 (** Main event loop fiber *)
@@ -252,11 +251,7 @@ let run_event_loop t ~sw:_ ~clock =
     | _ ->
       (* SCTP timer tick *)
       let outputs = Sctp_core.poll_transmit t.sctp in
-      List.iter
-        (function
-          | Sctp_core.SendPacket data -> ignore (Dtls_eio.send t.dtls data)
-          | _ -> ())
-        outputs;
+      send_sctp_packets t outputs;
       Time.sleep clock 0.010;
       (* 10ms tick *)
       loop ()
