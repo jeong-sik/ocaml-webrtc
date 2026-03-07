@@ -75,7 +75,9 @@ let run_sender t ~get_data =
     then (
       match get_data () with
       | Some (stream_id, data) ->
-        ignore (Sctp_full_transport.send_data t.inner ~stream_id ~data)
+        Result.iter_error
+          (fun msg -> Printf.eprintf "sctp-eio: send_data failed: %s\n%!" msg)
+          (Sctp_full_transport.send_data t.inner ~stream_id ~data)
       | None -> Eio.Fiber.yield ())
     else Eio.Fiber.yield ()
   done

@@ -110,7 +110,9 @@ let try_recv_packet t =
 let flush_bundle t =
   if t.bundle_offset > 0
   then (
-    ignore (Udp_transport.send_view t.udp ~buf:t.send_buffer ~off:0 ~len:t.bundle_offset);
+    (match Udp_transport.send_view t.udp ~buf:t.send_buffer ~off:0 ~len:t.bundle_offset with
+     | Ok _ -> ()
+     | Error msg -> Printf.eprintf "sctp: bundle flush failed: %s\n%!" msg);
     t.bundle_offset <- 0)
 ;;
 
@@ -236,7 +238,9 @@ let process_packet_view t ~buf ~off ~len =
   then (
     let sack = Sctp_reliable.generate_sack t.reliable in
     let sack_encoded = Sctp_reliable.encode_sack sack in
-    ignore (send_packet t sack_encoded);
+    Result.iter_error
+      (fun msg -> Printf.eprintf "sctp: SACK send failed: %s\n%!" msg)
+      (send_packet t sack_encoded);
     t.stats.sacks_sent <- t.stats.sacks_sent + 1;
     t.packets_since_sack <- 0;
     t.pending_sack <- false)
@@ -257,7 +261,9 @@ let send_chunk_immediate t chunk =
   in
   (* If we have bundled data, include retransmit with it *)
   let total_len = t.bundle_offset + encoded_len in
-  ignore (Udp_transport.send_view t.udp ~buf:t.send_buffer ~off:0 ~len:total_len);
+  (match Udp_transport.send_view t.udp ~buf:t.send_buffer ~off:0 ~len:total_len with
+   | Ok _ -> ()
+   | Error msg -> Printf.eprintf "sctp: immediate send failed: %s\n%!" msg);
   t.bundle_offset <- 0 (* Reset bundle after sending *)
 ;;
 
@@ -305,7 +311,9 @@ let flush_pending_sack t =
   then (
     let sack = Sctp_reliable.generate_sack t.reliable in
     let sack_encoded = Sctp_reliable.encode_sack sack in
-    ignore (send_packet t sack_encoded);
+    Result.iter_error
+      (fun msg -> Printf.eprintf "sctp: pending SACK send failed: %s\n%!" msg)
+      (send_packet t sack_encoded);
     t.stats.sacks_sent <- t.stats.sacks_sent + 1;
     t.packets_since_sack <- 0;
     t.pending_sack <- false)
