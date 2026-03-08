@@ -27,7 +27,7 @@
 (** A packet containing bundled chunks ready for transmission *)
 type bundled_packet =
   { chunks : bytes list (** List of encoded chunks *)
-  ; total_size : int (** Total size including all chunks *)
+  ; total_size : int (** Total size in bytes including the 12-byte SCTP common header *)
   }
 
 (** Bundler state (mutable) *)
@@ -113,7 +113,8 @@ val bundle_all : t -> bytes list -> bundled_packet list
 (** [pending_count t] returns number of chunks waiting in buffer. *)
 val pending_count : t -> int
 
-(** [pending_size t] returns total bytes used by pending chunks. *)
+(** [pending_size t] returns total pending bytes including the 12-byte SCTP
+    common header overhead. *)
 val pending_size : t -> int
 
 (** [available_space t] returns remaining bytes available in current bundle. *)
