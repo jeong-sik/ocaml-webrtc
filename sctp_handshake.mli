@@ -91,7 +91,9 @@ val default_hmac_secret : string
 
 (** [set_hmac_secret secret] sets the HMAC key for cookie integrity.
 
-    Call this at application startup before any connections.
+    {b Thread safety}: this function mutates a global ref and is not safe
+    under OCaml 5.x multi-domain concurrency. Call it once at application
+    startup before creating any SCTP connections.
 
     @param secret A strong random secret (at least 32 bytes recommended) *)
 val set_hmac_secret : string -> unit

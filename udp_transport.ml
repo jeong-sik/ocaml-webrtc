@@ -54,9 +54,9 @@ let create ?(host = "0.0.0.0") ?(port = 0) () =
   (* Increase socket buffer sizes for high throughput *)
   (* Default is typically 8KB-64KB, we want 4MB for benchmarks *)
   (try Unix.setsockopt_int socket Unix.SO_SNDBUF (4 * 1024 * 1024) with
-   | _ -> ());
+   | Unix.Unix_error _ -> ());
   (try Unix.setsockopt_int socket Unix.SO_RCVBUF (4 * 1024 * 1024) with
-   | _ -> ());
+   | Unix.Unix_error _ -> ());
   (* Bind to local address *)
   let addr = Unix.inet_addr_of_string host in
   Unix.bind socket (Unix.ADDR_INET (addr, port));

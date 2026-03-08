@@ -8,13 +8,8 @@
 (** RACK state *)
 type t
 
-(** Per-packet transmission info *)
-type xmit_info =
-  { tsn : int32
-  ; mutable sent_at : float
-  ; size : int
-  ; mutable retx_count : int
-  }
+(** Per-packet transmission info (abstract; internal fields are mutable) *)
+type xmit_info
 
 (** {1 Creation} *)
 

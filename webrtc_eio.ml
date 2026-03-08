@@ -83,7 +83,7 @@ let default_ice_config =
 let create ?(ice_config = default_ice_config) ~role () =
   (* Initialize crypto RNG *)
   (try Mirage_crypto_rng_unix.use_default () with
-   | _ -> ());
+   | Failure _ -> ());
   let is_client = role = Client in
   { role
   ; state = New
