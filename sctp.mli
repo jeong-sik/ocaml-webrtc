@@ -163,9 +163,10 @@ val message_type_of_ppid : int32 -> message_type option
 val create : config -> association
 val get_state : association -> state
 val is_established : association -> bool
-val association_info :
-  association ->
-  [> `Assoc of (string * [> `Int of int | `String of string ]) list ]
+
+val association_info
+  :  association
+  -> [> `Assoc of (string * [> `Int of int | `String of string ]) list ]
 
 (** {1 Stream Management} *)
 
@@ -179,6 +180,7 @@ val get_streams : association -> stream list
 val encode_data_chunk_into : buf:bytes -> off:int -> data_chunk -> int
 val encode_data_chunk : data_chunk -> bytes
 val encode_data_chunks_batch : data_chunk list -> mtu:int -> bytes list
+
 val fragment_data
   :  data:bytes
   -> stream_id:int
@@ -187,6 +189,7 @@ val fragment_data
   -> start_tsn:int32
   -> mtu:int
   -> data_chunk list
+
 val decode_data_chunk_view : bytes -> off:int -> len:int -> (data_chunk, string) result
 val decode_data_chunk : bytes -> (data_chunk, string) result
 val calculate_checksum : bytes -> int32

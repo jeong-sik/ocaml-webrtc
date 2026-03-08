@@ -101,9 +101,10 @@ val close : t -> unit
 (** {1 Convenience: Simple API} *)
 
 val run_peer
-  :  env:< clock : float Eio.Time.clock_ty Eio.Resource.t
-         ; net : [> [> `Generic ] Eio.Net.ty ] Eio.Resource.t
-         ; .. >
+  :  env:
+       < clock : float Eio.Time.clock_ty Eio.Resource.t
+       ; net : [> [> `Generic ] Eio.Net.ty ] Eio.Resource.t
+       ; .. >
   -> role:role
   -> on_channel:(datachannel -> unit)
   -> on_message:(datachannel -> bytes -> unit)

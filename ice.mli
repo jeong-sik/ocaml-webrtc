@@ -273,12 +273,7 @@ val get_best_succeeded_pair : agent -> candidate_pair option
 
 (** {1 Candidate Pair Management} *)
 
-val create_pair
-  :  local:candidate
-  -> remote:candidate
-  -> role:ice_role
-  -> candidate_pair
-
+val create_pair : local:candidate -> remote:candidate -> role:ice_role -> candidate_pair
 val form_new_pairs : agent -> is_local:bool -> candidate -> unit
 
 (** {1 Remote Credentials} *)
@@ -303,27 +298,28 @@ val consent_received : agent -> unit
 val consent_failed : agent -> unit
 val is_consent_valid : agent -> bool
 val needs_consent_refresh : agent -> bool
-val get_consent_status :
-  agent ->
-  [> `Assoc of
-       (string *
-        [> `Bool of bool | `Float of float | `Int of int | `Null ])
-       list ]
+
+val get_consent_status
+  :  agent
+  -> [> `Assoc of
+          (string * [> `Bool of bool | `Float of float | `Int of int | `Null ]) list
+     ]
 
 (** {1 JSON Status} *)
 
-val status_json :
-  agent ->
-  [> `Assoc of
-       (string *
-        [> `Assoc of
-             (string *
-              [> `Bool of bool | `Float of float | `Int of int | `Null ])
-             list
-         | `Bool of bool
-         | `Int of int
-         | `String of string ])
-       list ]
+val status_json
+  :  agent
+  -> [> `Assoc of
+          (string
+          * [> `Assoc of
+                 (string * [> `Bool of bool | `Float of float | `Int of int | `Null ])
+                   list
+            | `Bool of bool
+            | `Int of int
+            | `String of string
+            ])
+            list
+     ]
 
 (** {1 Pretty Printing} *)
 
