@@ -466,7 +466,7 @@ let discover_local_ip () =
     | Unix.ADDR_INET (ip, _) -> Some (Unix.string_of_inet_addr ip)
     | _ -> None
   with
-  | _ -> None
+  | Unix.Unix_error _ -> None
 ;;
 
 (** Discover local IP for a specific STUN server *)
@@ -484,7 +484,7 @@ let discover_local_ip_for_server server_host =
        | Unix.ADDR_INET (ip, _) -> Some (Unix.string_of_inet_addr ip)
        | _ -> None)
   with
-  | _ -> None
+  | Unix.Unix_error _ | Not_found -> None
 ;;
 
 (** Parse IPv4 address from ifconfig/ip output line *)
@@ -496,7 +496,7 @@ let extract_ipv4_from_line line =
   if Str.string_match ipv4_pattern line 0
   then (
     try Some (Str.matched_group 2 line) with
-    | _ -> None)
+    | Not_found | Invalid_argument _ -> None)
   else None
 ;;
 
@@ -516,7 +516,7 @@ let get_addresses_from_ifconfig () =
          in
          Some (loop [])
        with
-       | _ -> None
+       | Unix.Unix_error _ | Sys_error _ -> None
      in
      let lines =
        match read_process_lines "ifconfig" [| "ifconfig" |] with
@@ -534,7 +534,7 @@ let get_addresses_from_ifconfig () =
           | _ -> ())
        lines
    with
-   | _ -> ());
+   | Unix.Unix_error _ | Sys_error _ -> ());
   !addresses
 ;;
 
@@ -569,7 +569,7 @@ let get_addresses_from_proc () =
       | End_of_file -> ());
      close_in ic
    with
-   | _ -> ());
+   | Sys_error _ -> ());
   !addresses
 ;;
 
@@ -606,7 +606,7 @@ let discover_addresses_via_routing () =
            then addresses := ip_str :: !addresses
          | _ -> ()
        with
-       | _ -> ())
+       | Unix.Unix_error _ -> ())
     external_targets;
   !addresses
 ;;
@@ -641,7 +641,7 @@ let get_local_addresses () =
        (fun addr -> add_if_new (Unix.string_of_inet_addr addr))
        host_entry.Unix.h_addr_list
    with
-   | _ -> ());
+   | Unix.Unix_error _ | Not_found -> ());
   !addresses
 ;;
 

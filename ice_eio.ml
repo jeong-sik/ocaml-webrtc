@@ -145,7 +145,7 @@ let gather_srflx t ~stun_server ~local_addr ~local_port =
       wait ()
     | None -> None
   with
-  | _ -> None
+  | Unix.Unix_error _ | Failure _ -> None
 ;;
 
 (** {1 Gathering} *)

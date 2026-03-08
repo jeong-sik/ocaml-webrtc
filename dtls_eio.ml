@@ -255,7 +255,7 @@ let run_server_handshake t ~clock ~client_addr ~timeout_s =
 let run t ~sw:_ ~clock ~role ~client_addr ~on_established =
   (* Initialize RNG if not done *)
   (try Mirage_crypto_rng_unix.use_default () with
-   | _ -> ());
+   | Failure _ -> ());
   match role with
   | `Client ->
     (match run_client_handshake t ~clock ~timeout_s:30.0 with
