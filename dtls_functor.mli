@@ -16,7 +16,7 @@
     @since ocaml-webrtc 0.1.0
 *)
 
-module Make : (T : Transport_intf.TRANSPORT) -> sig
+module Make : functor (T : Transport_intf.TRANSPORT) -> sig
   type transport = T.t
 
   val to_io_ops : transport -> Dtls.io_ops
