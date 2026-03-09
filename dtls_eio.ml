@@ -38,6 +38,15 @@ type t =
   ; mutable on_error : (string -> unit) option
   }
 
+(** {1 RNG Initialization} *)
+
+(** Initialize the cryptographic RNG if not already done.
+    Safe to call multiple times — subsequent calls are no-ops. *)
+let ensure_rng_initialized () =
+  try Mirage_crypto_rng_unix.use_default () with
+  | Failure _ -> ()
+;;
+
 (** {1 Creation} *)
 
 let create_client () =
@@ -254,8 +263,7 @@ let run_server_handshake t ~clock ~client_addr ~timeout_s =
 (** Run DTLS with Eio fibers *)
 let run t ~sw:_ ~clock ~role ~client_addr ~on_established =
   (* Initialize RNG if not done *)
-  (try Mirage_crypto_rng_unix.use_default () with
-   | Failure _ -> ());
+  ensure_rng_initialized ();
   match role with
   | `Client ->
     (match run_client_handshake t ~clock ~timeout_s:30.0 with
