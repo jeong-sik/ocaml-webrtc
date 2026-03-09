@@ -13,7 +13,6 @@
     @since 2026-02 - Async blocking pattern fixes
 *)
 
-val global_clock : float Eio.Time.clock_ty Eio.Resource.t option ref
 val set_clock : float Eio.Time.clock_ty Eio.Resource.t -> unit
 val clear_clock : unit -> unit
 val has_clock : unit -> bool

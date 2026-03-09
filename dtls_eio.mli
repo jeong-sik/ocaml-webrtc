@@ -81,7 +81,7 @@ val run_server_handshake
 
 val run
   :  t
-  -> sw:'a
+  -> sw:Eio.Switch.t
   -> clock:[> float Eio.Time.clock_ty ] Eio.Time.clock
   -> role:[< `Client | `Server ]
   -> client_addr:string * int

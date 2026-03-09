@@ -54,6 +54,6 @@ val add_remote_candidate : t -> Ice.candidate -> unit
 val set_remote_credentials : t -> ufrag:string -> pwd:string -> unit
 val send : t -> bytes -> (unit, string) result
 val try_recv : t -> bytes option
-val run_checks : 'a -> clock:'b -> unit
-val run : t -> sw:'a -> net:'b -> clock:'c -> on_connected:(unit -> 'd) -> 'd
+val run_checks : t -> clock:'a -> unit
+val run : t -> sw:'b -> net:'c -> clock:'d -> on_connected:(unit -> 'e) -> 'e
 val close : t -> unit

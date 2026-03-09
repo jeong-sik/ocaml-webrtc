@@ -48,15 +48,8 @@ type aggregated_stats =
   }
 
 module Mpsc_queue : sig
-  type 'a node =
-    { mutable value : 'a option
-    ; next : 'a node option Atomic.t
-    }
-
-  type 'a t =
-    { head : 'a node Atomic.t
-    ; tail : 'a node Atomic.t
-    }
+  type 'a node
+  type 'a t
 
   val create : unit -> 'a t
   val push : 'a t -> 'a -> unit
