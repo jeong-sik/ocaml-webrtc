@@ -374,18 +374,19 @@ let candidate_to_string c =
 let generate_ufrag () =
   let chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" in
   let len = String.length chars in
-  String.init 4 (fun _ -> chars.[Random.int len])
+  let rand = Webrtc_crypto.random_bytes_raw 4 in
+  String.init 4 (fun i -> chars.[Char.code (Bytes.get rand i) mod len])
 ;;
 
 let generate_pwd () =
   let chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/" in
   let len = String.length chars in
-  String.init 22 (fun _ -> chars.[Random.int len])
+  let rand = Webrtc_crypto.random_bytes_raw 22 in
+  String.init 22 (fun i -> chars.[Char.code (Bytes.get rand i) mod len])
 ;;
 
 (** Create new ICE agent *)
 let create config =
-  Random.self_init ();
   { state = New
   ; gathering_state = Gathering_new
   ; local_candidates = []
@@ -839,7 +840,10 @@ let set_end_of_candidates agent =
 (** {1 Connectivity Checks - RFC 8445 Section 6} *)
 
 (** Generate a tie-breaker value for ICE *)
-let generate_tie_breaker () = Random.int64 Int64.max_int
+let generate_tie_breaker () =
+  let rand = Webrtc_crypto.random_bytes_raw 8 in
+  Bytes.get_int64_be rand 0
+
 
 (** Get all candidate pairs *)
 let get_pairs agent = agent.pairs

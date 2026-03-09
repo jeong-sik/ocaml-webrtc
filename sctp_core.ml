@@ -190,7 +190,7 @@ let snapshot_stats (s : mutable_stats) : stats =
 let create
       ?(config = Sctp.default_config)
       ?initial_tsn
-      ?(my_vtag = Random.int32 0x7FFFFFFFl)
+      ?(my_vtag = Webrtc_crypto.random_int32 ())
       ?(peer_vtag = 0l)
       ?(src_port = 5000)
       ?(dst_port = 5000)

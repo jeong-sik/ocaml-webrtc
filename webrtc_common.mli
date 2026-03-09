@@ -25,8 +25,10 @@ val read_uint48_be : bytes -> int -> int64
 
 (** {1 Buffer Utilities} *)
 
-(** [random_bytes len] creates buffer of [len] random bytes *)
-val random_bytes : int -> bytes
+(** [random_fill_insecure len] creates buffer of [len] non-cryptographic random bytes.
+    Uses stdlib Random — NOT suitable for keys, nonces, or security-sensitive IDs.
+    Use {!Webrtc_crypto.random_bytes_raw} for cryptographic randomness. *)
+val random_fill_insecure : int -> bytes
 
 (** [safe_sub_bytes buf offset len] extracts sub-bytes with bounds checking *)
 val safe_sub_bytes : bytes -> int -> int -> bytes option
