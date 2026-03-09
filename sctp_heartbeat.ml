@@ -169,7 +169,7 @@ let should_send_heartbeat t =
 (** Generate and send heartbeat *)
 let generate_heartbeat t ~path_id =
   let now = Time_compat.now () in
-  let info = { timestamp = now; random_nonce = Random.int32 0x7FFFFFFFl; path_id } in
+  let info = { timestamp = now; random_nonce = Webrtc_crypto.random_int32 (); path_id } in
   t.last_heartbeat_sent <- Some now;
   t.pending_heartbeat <- Some info;
   encode_heartbeat info

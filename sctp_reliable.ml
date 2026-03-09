@@ -133,11 +133,7 @@ let create_stats () =
 
 (** Generate random initial TSN per RFC 4960 Section 5.3.1
     "The initial TSN SHOULD be set to a random value" *)
-let random_initial_tsn () =
-  (* Use Int32 to avoid sign issues, range 1 to 2^31-1 *)
-  let r = Random.int32 0x7FFFFFFFl in
-  if r = 0l then 1l else r
-;;
+let random_initial_tsn () = Webrtc_crypto.random_nonzero_int32 ()
 
 let create ?(config = Sctp.default_config) ?initial_tsn () =
   let initial_cwnd = min (4 * config.mtu) (max (2 * config.mtu) 4380) in

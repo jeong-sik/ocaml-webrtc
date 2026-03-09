@@ -258,13 +258,12 @@ let message_type_of_ppid = function
 
 (** Create new SCTP association *)
 let create config =
-  Random.self_init ();
   { state = Closed
   ; streams = Hashtbl.create 16
   ; config
-  ; my_vtag = Random.int32 Int32.max_int
+  ; my_vtag = Webrtc_crypto.random_nonzero_int32 ()
   ; peer_vtag = 0l
-  ; next_tsn = Random.int32 Int32.max_int
+  ; next_tsn = Webrtc_crypto.random_nonzero_int32 ()
   ; last_rcvd_tsn = 0l
   ; (* IW10 - RFC 6928 Initial Window = 10 * MTU for faster ramp-up *)
     cwnd = config.mtu * 10

@@ -76,14 +76,12 @@ let chunk_type_cookie_ack = 11
 
 (** {1 Random Generation} *)
 
-(** Generate random verification tag - RFC 4960 Section 5.3.1 *)
-let random_vtag () =
-  let r = Random.int32 0x7FFFFFFFl in
-  if r = 0l then 1l else r (* Must not be 0 *)
-;;
+(** Generate random verification tag - RFC 4960 Section 5.3.1
+    "The Initiate Tag MUST NOT take the value 0." *)
+let random_vtag () = Webrtc_crypto.random_nonzero_int32 ()
 
-(** Generate random initial TSN - same as vtag *)
-let random_initial_tsn () = random_vtag ()
+(** Generate random initial TSN *)
+let random_initial_tsn () = Webrtc_crypto.random_nonzero_int32 ()
 
 (** {1 HMAC for Cookie Integrity} *)
 

@@ -146,14 +146,7 @@ let create config =
 (** {1 STUN/TURN Message Building} *)
 
 let magic_cookie = 0x2112A442l
-
-let generate_transaction_id () =
-  let buf = Bytes.create 12 in
-  for i = 0 to 11 do
-    Bytes.set_uint8 buf i (Random.int 256)
-  done;
-  buf
-;;
+let generate_transaction_id () = Webrtc_crypto.random_bytes_raw 12
 
 (** Build raw STUN/TURN message header *)
 let build_message_header msg_type length tid =
