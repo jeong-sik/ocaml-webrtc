@@ -1,7 +1,7 @@
 (** RFC 8422 - Elliptic Curve Diffie-Hellman Ephemeral (ECDHE)
 
     Pure OCaml implementation for WebRTC DTLS key exchange.
-    Uses P-256 (secp256r1) curve as required by WebRTC spec.
+    Supports P-256, P-384, P-521 (NIST curves) and X25519.
 
     @author Second Brain
     @since ocaml-webrtc 0.2.0
@@ -91,6 +91,34 @@ let generate_p256 () : (keypair, string) result =
     Error (Printf.sprintf "P-256 key generation failed: %s" (Printexc.to_string exn))
 ;;
 
+(** Generate ephemeral ECDHE key pair for P-384 *)
+let generate_p384 () : (keypair, string) result =
+  try
+    Mirage_crypto_rng_unix.use_default ();
+    let priv, pub_str = Mirage_crypto_ec.P384.Dh.gen_key () in
+    let priv_str = Mirage_crypto_ec.P384.Dh.secret_to_octets priv in
+    let priv_cs = Cstruct.of_string priv_str in
+    let pub_cs = Cstruct.of_string pub_str in
+    Ok { curve = Secp384r1; private_key = priv_cs; public_key = pub_cs }
+  with
+  | exn ->
+    Error (Printf.sprintf "P-384 key generation failed: %s" (Printexc.to_string exn))
+;;
+
+(** Generate ephemeral ECDHE key pair for P-521 *)
+let generate_p521 () : (keypair, string) result =
+  try
+    Mirage_crypto_rng_unix.use_default ();
+    let priv, pub_str = Mirage_crypto_ec.P521.Dh.gen_key () in
+    let priv_str = Mirage_crypto_ec.P521.Dh.secret_to_octets priv in
+    let priv_cs = Cstruct.of_string priv_str in
+    let pub_cs = Cstruct.of_string pub_str in
+    Ok { curve = Secp521r1; private_key = priv_cs; public_key = pub_cs }
+  with
+  | exn ->
+    Error (Printf.sprintf "P-521 key generation failed: %s" (Printexc.to_string exn))
+;;
+
 (** Generate key pair for X25519 (Curve25519)
     Same API as P-256: gen_key returns (secret, public_key_string) *)
 let generate_x25519 () : (keypair, string) result =
@@ -113,8 +141,8 @@ let generate ~curve : (keypair, string) result =
   match curve with
   | Secp256r1 -> generate_p256 ()
   | X25519 -> generate_x25519 ()
-  | Secp384r1 -> Error "P-384 not yet implemented"
-  | Secp521r1 -> Error "P-521 not yet implemented"
+  | Secp384r1 -> generate_p384 ()
+  | Secp521r1 -> generate_p521 ()
 ;;
 
 (** {1 Key Exchange (Shared Secret Computation)} *)
@@ -134,6 +162,30 @@ let compute_shared_secret_p256 ~private_key ~peer_public_key : (Cstruct.t, strin
     (match Mirage_crypto_ec.P256.Dh.key_exchange priv peer_pub_str with
      | Ok shared -> Ok (Cstruct.of_string shared)
      | Error _ -> Error "P-256 ECDH key exchange failed")
+;;
+
+(** Compute shared secret for P-384 *)
+let compute_shared_secret_p384 ~private_key ~peer_public_key : (Cstruct.t, string) result =
+  let priv_str = Cstruct.to_string private_key in
+  let peer_pub_str = Cstruct.to_string peer_public_key in
+  match Mirage_crypto_ec.P384.Dh.secret_of_octets priv_str with
+  | Error _ -> Error "Invalid P-384 private key"
+  | Ok (priv, _pub) ->
+    (match Mirage_crypto_ec.P384.Dh.key_exchange priv peer_pub_str with
+     | Ok shared -> Ok (Cstruct.of_string shared)
+     | Error _ -> Error "P-384 ECDH key exchange failed")
+;;
+
+(** Compute shared secret for P-521 *)
+let compute_shared_secret_p521 ~private_key ~peer_public_key : (Cstruct.t, string) result =
+  let priv_str = Cstruct.to_string private_key in
+  let peer_pub_str = Cstruct.to_string peer_public_key in
+  match Mirage_crypto_ec.P521.Dh.secret_of_octets priv_str with
+  | Error _ -> Error "Invalid P-521 private key"
+  | Ok (priv, _pub) ->
+    (match Mirage_crypto_ec.P521.Dh.key_exchange priv peer_pub_str with
+     | Ok shared -> Ok (Cstruct.of_string shared)
+     | Error _ -> Error "P-521 ECDH key exchange failed")
 ;;
 
 (** Compute shared secret for X25519
@@ -157,10 +209,12 @@ let compute_shared_secret ~keypair ~peer_public_key : (Cstruct.t, string) result
   match keypair.curve with
   | Secp256r1 ->
     compute_shared_secret_p256 ~private_key:keypair.private_key ~peer_public_key
+  | Secp384r1 ->
+    compute_shared_secret_p384 ~private_key:keypair.private_key ~peer_public_key
+  | Secp521r1 ->
+    compute_shared_secret_p521 ~private_key:keypair.private_key ~peer_public_key
   | X25519 ->
     compute_shared_secret_x25519 ~private_key:keypair.private_key ~peer_public_key
-  | Secp384r1 -> Error "P-384 not yet implemented"
-  | Secp521r1 -> Error "P-521 not yet implemented"
 ;;
 
 (** {1 Wire Format Encoding/Decoding} *)
@@ -275,9 +329,9 @@ let hash_handshake_messages messages =
 (** Check if a curve is supported *)
 let is_curve_supported = function
   | Secp256r1 -> true
+  | Secp384r1 -> true
+  | Secp521r1 -> true
   | X25519 -> true
-  | Secp384r1 -> false
-  | Secp521r1 -> false
 ;;
 
 (** Get default curve for WebRTC (P-256 mandatory) *)

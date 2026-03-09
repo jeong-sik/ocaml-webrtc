@@ -67,6 +67,93 @@ let test_ecdhe () =
     | _ -> failwith "Key generation failed")
 ;;
 
+let test_ecdhe_p384 () =
+  Printf.printf "\n═══ 1b. ECDHE P-384 (RFC 8422) ═══\n";
+  test "P-384 key generation" (fun () ->
+    match Ecdhe.generate_p384 () with
+    | Ok kp ->
+      let pub = Ecdhe.public_key kp in
+      assert_true "Public key should be 97 bytes" (Cstruct.length pub = 97)
+    | Error e -> failwith e);
+  test "P-384 key exchange" (fun () ->
+    match Ecdhe.generate_p384 (), Ecdhe.generate_p384 () with
+    | Ok alice, Ok bob ->
+      let alice_pub = Ecdhe.public_key alice in
+      let bob_pub = Ecdhe.public_key bob in
+      (match
+         ( Ecdhe.compute_shared_secret ~keypair:alice ~peer_public_key:bob_pub
+         , Ecdhe.compute_shared_secret ~keypair:bob ~peer_public_key:alice_pub )
+       with
+       | Ok s1, Ok s2 ->
+         assert_true "Shared secrets must match" (Cstruct.equal s1 s2);
+         assert_true "Shared secret should be 48 bytes" (Cstruct.length s1 = 48)
+       | _ -> failwith "Shared secret computation failed")
+    | _ -> failwith "Key generation failed");
+  test "P-384 via generate ~curve" (fun () ->
+    match Ecdhe.generate ~curve:Ecdhe.Secp384r1 with
+    | Ok kp ->
+      assert_true
+        "Public key should be 97 bytes"
+        (Cstruct.length (Ecdhe.public_key kp) = 97)
+    | Error e -> failwith e);
+  test "P-384 wire format roundtrip" (fun () ->
+    match Ecdhe.generate_p384 () with
+    | Ok kp ->
+      let params = Ecdhe.build_server_ecdh_params kp in
+      (match Ecdhe.parse_server_ecdh_params params with
+       | Ok (curve, pub) ->
+         assert_true "Curve should be P-384" (curve = Ecdhe.Secp384r1);
+         assert_true "Public key should match" (Cstruct.equal pub (Ecdhe.public_key kp))
+       | Error e -> failwith e)
+    | Error e -> failwith e)
+;;
+
+let test_ecdhe_p521 () =
+  Printf.printf "\n═══ 1c. ECDHE P-521 (RFC 8422) ═══\n";
+  test "P-521 key generation" (fun () ->
+    match Ecdhe.generate_p521 () with
+    | Ok kp ->
+      let pub = Ecdhe.public_key kp in
+      assert_true "Public key should be 133 bytes" (Cstruct.length pub = 133)
+    | Error e -> failwith e);
+  test "P-521 key exchange" (fun () ->
+    match Ecdhe.generate_p521 (), Ecdhe.generate_p521 () with
+    | Ok alice, Ok bob ->
+      let alice_pub = Ecdhe.public_key alice in
+      let bob_pub = Ecdhe.public_key bob in
+      (match
+         ( Ecdhe.compute_shared_secret ~keypair:alice ~peer_public_key:bob_pub
+         , Ecdhe.compute_shared_secret ~keypair:bob ~peer_public_key:alice_pub )
+       with
+       | Ok s1, Ok s2 ->
+         assert_true "Shared secrets must match" (Cstruct.equal s1 s2);
+         assert_true "Shared secret should be 66 bytes" (Cstruct.length s1 = 66)
+       | _ -> failwith "Shared secret computation failed")
+    | _ -> failwith "Key generation failed");
+  test "P-521 via generate ~curve" (fun () ->
+    match Ecdhe.generate ~curve:Ecdhe.Secp521r1 with
+    | Ok kp ->
+      assert_true
+        "Public key should be 133 bytes"
+        (Cstruct.length (Ecdhe.public_key kp) = 133)
+    | Error e -> failwith e);
+  test "P-521 wire format roundtrip" (fun () ->
+    match Ecdhe.generate_p521 () with
+    | Ok kp ->
+      let params = Ecdhe.build_server_ecdh_params kp in
+      (match Ecdhe.parse_server_ecdh_params params with
+       | Ok (curve, pub) ->
+         assert_true "Curve should be P-521" (curve = Ecdhe.Secp521r1);
+         assert_true "Public key should match" (Cstruct.equal pub (Ecdhe.public_key kp))
+       | Error e -> failwith e)
+    | Error e -> failwith e);
+  test "is_curve_supported for all curves" (fun () ->
+    assert_true "P-256 supported" (Ecdhe.is_curve_supported Ecdhe.Secp256r1);
+    assert_true "P-384 supported" (Ecdhe.is_curve_supported Ecdhe.Secp384r1);
+    assert_true "P-521 supported" (Ecdhe.is_curve_supported Ecdhe.Secp521r1);
+    assert_true "X25519 supported" (Ecdhe.is_curve_supported Ecdhe.X25519))
+;;
+
 (* ═══════════════════════════════════════════════════════════════════════════ *)
 (* 2. AES-GCM Tests *)
 (* ═══════════════════════════════════════════════════════════════════════════ *)
@@ -411,6 +498,8 @@ let () =
   Printf.printf "║     WebRTC Pure OCaml - Integration Test Suite                ║\n";
   Printf.printf "╚═══════════════════════════════════════════════════════════════╝\n";
   test_ecdhe ();
+  test_ecdhe_p384 ();
+  test_ecdhe_p521 ();
   test_aes_gcm ();
   test_tls_prf ();
   test_sctp ();

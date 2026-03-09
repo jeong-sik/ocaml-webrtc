@@ -26,6 +26,12 @@ val generate : curve:named_curve -> (keypair, string) result
 (** Generate P-256 key pair (WebRTC default) *)
 val generate_p256 : unit -> (keypair, string) result
 
+(** Generate P-384 key pair *)
+val generate_p384 : unit -> (keypair, string) result
+
+(** Generate P-521 key pair *)
+val generate_p521 : unit -> (keypair, string) result
+
 (** Generate X25519 key pair (modern alternative) *)
 val generate_x25519 : unit -> (keypair, string) result
 
