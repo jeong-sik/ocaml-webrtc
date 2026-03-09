@@ -276,9 +276,7 @@ let set_uint32_be buf off v =
    Transaction ID
    ============================================ *)
 
-let generate_transaction_id () =
-  Webrtc_crypto.random_bytes_raw 12
-;;
+let generate_transaction_id () = Webrtc_crypto.random_bytes_raw 12
 
 (* ============================================
    Message Type Encoding
