@@ -150,7 +150,8 @@ val aes_gcm_decrypt
 
 (** Initialize the cryptographic RNG if not already done.
     Safe to call multiple times — subsequent calls are no-ops.
-    Catches [Failure] (already initialized) and [Sys_error] (entropy unavailable). *)
+    Catches [Failure] (raised when RNG is already initialized).
+    [Sys_error] from entropy sources is NOT caught — propagates to caller. *)
 val ensure_rng_initialized : unit -> unit
 
 (** {1 Random Generation} *)
@@ -169,6 +170,13 @@ val random_bytes_raw : int -> bytes
 
     Reads 4 bytes from mirage-crypto-rng and interprets as big-endian int32. *)
 val random_int32 : unit -> int32
+
+(** [random_nonzero_int32 ()] generates a cryptographic random non-zero [int32].
+
+    Loops until a non-zero value is produced (expected 1 iteration).
+    Required for SCTP Initiate Tags per RFC 4960 §5.3.1:
+    "The Initiate Tag MUST NOT take the value 0." *)
+val random_nonzero_int32 : unit -> int32
 
 (** [generate_random ()] generates a 32-byte TLS random value.
 

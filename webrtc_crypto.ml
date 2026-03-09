@@ -167,10 +167,12 @@ let aes_gcm_decrypt ~key ~implicit_iv ~explicit_nonce ~aad ~ciphertext_and_tag =
 
 (** Initialize the cryptographic RNG if not already done.
     Safe to call multiple times — subsequent calls are no-ops.
-    Catches Failure (already initialized) and Sys_error (entropy unavailable). *)
+    Catches [Failure] (raised when RNG is already initialized).
+    [Sys_error] from entropy sources is NOT caught — it indicates
+    a real system problem that callers should handle. *)
 let ensure_rng_initialized () =
   try Mirage_crypto_rng_unix.use_default () with
-  | Failure _ | Sys_error _ -> ()
+  | Failure _ -> ()
 ;;
 
 (** {1 Utilities} *)
@@ -192,6 +194,17 @@ let random_int32 () =
   ensure_rng_initialized ();
   let s = Mirage_crypto_rng.generate 4 in
   String.get_int32_be s 0
+;;
+
+(** Generate cryptographic random non-zero int32.
+    Loops until a non-zero value is produced (expected iterations: 1).
+    Required for SCTP Initiate Tags per RFC 4960 §5.3.1. *)
+let random_nonzero_int32 () =
+  let rec go () =
+    let v = random_int32 () in
+    if v <> 0l then v else go ()
+  in
+  go ()
 ;;
 
 (** Generate client/server random (32 bytes with timestamp prefix) *)
