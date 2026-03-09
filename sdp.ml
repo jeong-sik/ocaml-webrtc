@@ -656,7 +656,7 @@ let create_datachannel_offer ~ice_ufrag ~ice_pwd ~fingerprint ~sctp_port =
   { version = 0
   ; origin =
       { username = "-"
-      ; sess_id = string_of_int (Random.int 1000000000)
+      ; sess_id = Int32.to_string (Int32.abs (Webrtc_crypto.random_int32 ()))
       ; sess_version = 1L
       ; net_type = IN
       ; addr_type = IP4
@@ -943,7 +943,7 @@ module OfferAnswer = struct
       (* Generate offer SDP from media list *)
       let origin =
         { username = "-"
-        ; sess_id = string_of_int (Random.int 1000000000)
+        ; sess_id = Int32.to_string (Int32.abs (Webrtc_crypto.random_int32 ()))
         ; sess_version = 1L
         ; net_type = IN
         ; addr_type = IP4
@@ -990,7 +990,7 @@ module OfferAnswer = struct
       | Some remote ->
         let origin =
           { username = "-"
-          ; sess_id = string_of_int (Random.int 1000000000)
+          ; sess_id = Int32.to_string (Int32.abs (Webrtc_crypto.random_int32 ()))
           ; sess_version = 1L
           ; net_type = IN
           ; addr_type = IP4
