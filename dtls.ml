@@ -7,271 +7,26 @@
 *)
 
 open Effect
-open Effect.Deep
 
-(** {1 Effects for I/O} *)
+(** {1 Types and Effects — re-exported from Dtls_types for backward compatibility} *)
 
-type _ Effect.t +=
-  | Send : bytes -> int Effect.t
-  | Recv : int -> bytes Effect.t
-  | Now : float Effect.t
-  | Random : int -> bytes Effect.t
-  | SetTimer : int -> unit Effect.t (** Set retransmit timer (ms) *)
-  | CancelTimer : unit Effect.t (** Cancel pending retransmit timer *)
+include Dtls_types
 
-(** {1 Types} *)
+(** {1 Constants — delegated to Dtls_codec} *)
 
-type content_type =
-  | ChangeCipherSpec
-  | Alert
-  | Handshake
-  | ApplicationData
-
-type handshake_type =
-  | HelloRequest
-  | ClientHello
-  | ServerHello
-  | HelloVerifyRequest
-  | Certificate
-  | ServerKeyExchange
-  | CertificateRequest
-  | ServerHelloDone
-  | CertificateVerify
-  | ClientKeyExchange
-  | Finished
-
-type alert_level =
-  | Warning
-  | Fatal
-
-type alert_description =
-  | CloseNotify
-  | UnexpectedMessage
-  | BadRecordMac
-  | DecryptionFailed
-  | RecordOverflow
-  | DecompressionFailure
-  | HandshakeFailure
-  | BadCertificate
-  | UnsupportedCertificate
-  | CertificateRevoked
-  | CertificateExpired
-  | CertificateUnknown
-  | IllegalParameter
-  | UnknownCA
-  | AccessDenied
-  | DecodeError
-  | DecryptError
-  | ProtocolVersion
-  | InsufficientSecurity
-  | InternalError
-  | UserCanceled
-  | NoRenegotiation
-
-type state =
-  | Initial
-  (* Client states *)
-  | HelloSent
-  | HelloVerifyReceived
-  | ServerHelloReceived
-  | CertificateReceived
-  | KeyExchangeDone
-  | ChangeCipherSpecSent
-  | Established
-  | Closed
-  | Error of string
-  (* Server states *)
-  | HelloVerifySent
-  (** Server sent HelloVerifyRequest, waiting for ClientHello with cookie *)
-  | ClientHelloReceived (** Server received valid ClientHello with cookie *)
-  | ServerFlightSent (** Server sent full flight (ServerHello...ServerHelloDone) *)
-  | ClientKeyExchangeReceived (** Server received ClientKeyExchange *)
-
-type cipher_suite =
-  | TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
-  | TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
-  | TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
-  | TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
-
-type srtp_profile = Srtp.profile
-
-type config =
-  { is_client : bool
-  ; certificate : string option
-  ; private_key : string option
-  ; verify_peer : bool
-  ; cipher_suites : cipher_suite list
-  ; srtp_profiles : Srtp.profile list
-  ; mtu : int
-  ; retransmit_timeout_ms : int
-  ; max_retransmits : int
-  }
-
-(** Internal crypto state *)
-type crypto_state =
-  { mutable client_write_key : bytes option
-  ; mutable server_write_key : bytes option
-  ; mutable client_write_iv : bytes option
-  ; mutable server_write_iv : bytes option
-  ; mutable read_seq_num : int64
-  ; mutable write_seq_num : int64
-  }
-
-(** Handshake state tracking *)
-type handshake_state =
-  { mutable client_random : bytes option
-  ; mutable server_random : bytes option
-  ; mutable premaster_secret : bytes option
-  ; mutable master_secret : bytes option
-  ; mutable handshake_messages : bytes list (* For Finished verification *)
-  ; mutable cookie : bytes option
-  ; mutable message_seq : int
-  ; mutable next_receive_seq : int
-  ; mutable pending_fragments : (int * bytes) list (* seq -> fragment *)
-  ; (* ECDHE key exchange state (RFC 8422) *)
-    mutable ecdhe_keypair : Ecdhe.keypair option
-  ; mutable server_public_key : Cstruct.t option
-  ; mutable selected_curve : Ecdhe.named_curve option
-  }
-
-(** RFC 6347 Section 4.2.4: Retransmission state for flight-based reliability *)
-type retransmit_state =
-  { mutable last_flight : bytes list (** Last flight sent (for retransmission) *)
-  ; mutable retransmit_count : int (** Current retransmit attempt *)
-  ; mutable current_timeout_ms : int (** Current timeout (exponential backoff) *)
-  ; mutable flight_sent_at : float (** Timestamp when flight was sent *)
-  ; mutable timer_active : bool (** Whether retransmit timer is running *)
-  }
-
-type t =
-  { config : config
-  ; mutable state : state
-  ; mutable negotiated_cipher : cipher_suite option
-  ; mutable negotiated_srtp_profile : Srtp.profile option
-  ; mutable peer_certificate : string option
-  ; mutable epoch : int
-  ; crypto : crypto_state
-  ; handshake : handshake_state
-  ; retransmit : retransmit_state (** RFC 6347 retransmission state *)
-  }
-
-(** {1 Constants} *)
-
-let content_type_to_int = function
-  | ChangeCipherSpec -> 20
-  | Alert -> 21
-  | Handshake -> 22
-  | ApplicationData -> 23
-;;
-
-let int_to_content_type = function
-  | 20 -> Some ChangeCipherSpec
-  | 21 -> Some Alert
-  | 22 -> Some Handshake
-  | 23 -> Some ApplicationData
-  | _ -> None
-;;
-
-let handshake_type_to_int = function
-  | HelloRequest -> 0
-  | ClientHello -> 1
-  | ServerHello -> 2
-  | HelloVerifyRequest -> 3
-  | Certificate -> 11
-  | ServerKeyExchange -> 12
-  | CertificateRequest -> 13
-  | ServerHelloDone -> 14
-  | CertificateVerify -> 15
-  | ClientKeyExchange -> 16
-  | Finished -> 20
-;;
-
-let int_to_handshake_type = function
-  | 0 -> Some HelloRequest
-  | 1 -> Some ClientHello
-  | 2 -> Some ServerHello
-  | 3 -> Some HelloVerifyRequest
-  | 11 -> Some Certificate
-  | 12 -> Some ServerKeyExchange
-  | 13 -> Some CertificateRequest
-  | 14 -> Some ServerHelloDone
-  | 15 -> Some CertificateVerify
-  | 16 -> Some ClientKeyExchange
-  | 20 -> Some Finished
-  | _ -> None
-;;
-
-let cipher_suite_to_int = function
-  | TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 -> 0xC02B
-  | TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 -> 0xC02F
-  | TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 -> 0xC02C
-  | TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 -> 0xC030
-;;
-
-let int_to_cipher_suite = function
-  | 0xC02B -> Some TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
-  | 0xC02F -> Some TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
-  | 0xC02C -> Some TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
-  | 0xC030 -> Some TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
-  | _ -> None
-;;
-
-let alert_level_to_int = function
-  | Warning -> 1
-  | Fatal -> 2
-;;
-
-let alert_description_to_int = function
-  | CloseNotify -> 0
-  | UnexpectedMessage -> 10
-  | BadRecordMac -> 20
-  | DecryptionFailed -> 21
-  | RecordOverflow -> 22
-  | DecompressionFailure -> 30
-  | HandshakeFailure -> 40
-  | BadCertificate -> 42
-  | UnsupportedCertificate -> 43
-  | CertificateRevoked -> 44
-  | CertificateExpired -> 45
-  | CertificateUnknown -> 46
-  | IllegalParameter -> 47
-  | UnknownCA -> 48
-  | AccessDenied -> 49
-  | DecodeError -> 50
-  | DecryptError -> 51
-  | ProtocolVersion -> 70
-  | InsufficientSecurity -> 71
-  | InternalError -> 80
-  | UserCanceled -> 90
-  | NoRenegotiation -> 100
-;;
-
-(** DTLS version: 1.2 = { 254, 253 } *)
-let dtls_version_major = 254
-
-let dtls_version_minor = 253
-
-(** RFC 5764 use_srtp extension type *)
-let use_srtp_extension_type = 0x000e
-
-let srtp_profile_to_id = function
-  | Srtp.SRTP_AES128_CM_HMAC_SHA1_80 -> 0x0001
-  | Srtp.SRTP_AES128_CM_HMAC_SHA1_32 -> 0x0002
-  | Srtp.SRTP_NULL_HMAC_SHA1_80 -> 0x0005
-  | Srtp.SRTP_NULL_HMAC_SHA1_32 -> 0x0006
-  | Srtp.SRTP_AEAD_AES_128_GCM -> 0x0007 (* RFC 7714 *)
-  | Srtp.SRTP_AEAD_AES_256_GCM -> 0x0008 (* RFC 7714 *)
-;;
-
-let srtp_profile_of_id = function
-  | 0x0001 -> Some Srtp.SRTP_AES128_CM_HMAC_SHA1_80
-  | 0x0002 -> Some Srtp.SRTP_AES128_CM_HMAC_SHA1_32
-  | 0x0005 -> Some Srtp.SRTP_NULL_HMAC_SHA1_80
-  | 0x0006 -> Some Srtp.SRTP_NULL_HMAC_SHA1_32
-  | 0x0007 -> Some Srtp.SRTP_AEAD_AES_128_GCM (* RFC 7714 *)
-  | 0x0008 -> Some Srtp.SRTP_AEAD_AES_256_GCM (* RFC 7714 *)
-  | _ -> None
-;;
+let content_type_to_int = Dtls_codec.content_type_to_int
+let int_to_content_type = Dtls_codec.int_to_content_type
+let handshake_type_to_int = Dtls_codec.handshake_type_to_int
+let int_to_handshake_type = Dtls_codec.int_to_handshake_type
+let cipher_suite_to_int = Dtls_codec.cipher_suite_to_int
+let int_to_cipher_suite = Dtls_codec.int_to_cipher_suite
+let alert_level_to_int = Dtls_codec.alert_level_to_int
+let alert_description_to_int = Dtls_codec.alert_description_to_int
+let dtls_version_major = Dtls_codec.dtls_version_major
+let dtls_version_minor = Dtls_codec.dtls_version_minor
+let use_srtp_extension_type = Dtls_codec.use_srtp_extension_type
+let srtp_profile_to_id = Dtls_codec.srtp_profile_to_id
+let srtp_profile_of_id = Dtls_codec.srtp_profile_of_id
 
 (** {1 Default Configuration} *)
 
@@ -1798,30 +1553,6 @@ let build_gcm_nonce ~implicit_iv ~seq_num =
   nonce
 ;;
 
-(** Build AAD (Additional Authenticated Data) for AEAD
-    Format: epoch (2) || seq_num (6) || content_type (1) || version (2) || length (2) *)
-let build_gcm_aad ~epoch ~seq_num ~content_type ~length =
-  let aad = Bytes.create 13 in
-  (* Epoch (2 bytes) - in DTLS, epoch is part of explicit nonce *)
-  Bytes.set_uint16_be aad 0 epoch;
-  (* Sequence number (6 bytes, lower 48 bits) *)
-  for i = 0 to 5 do
-    let shift = (5 - i) * 8 in
-    Bytes.set_uint8
-      aad
-      (2 + i)
-      (Int64.to_int (Int64.shift_right_logical seq_num shift) land 0xff)
-  done;
-  (* Content type *)
-  Bytes.set_uint8 aad 8 (content_type_to_int content_type);
-  (* Version (DTLS 1.2 = 254.253) *)
-  Bytes.set_uint8 aad 9 254;
-  Bytes.set_uint8 aad 10 253;
-  (* Length of plaintext *)
-  Bytes.set_uint16_be aad 11 length;
-  aad
-;;
-
 (** {1 Data Transfer} *)
 
 let encrypt t data =
@@ -1853,7 +1584,7 @@ let encrypt t data =
       let seq_num = t.crypto.write_seq_num in
       let nonce = build_gcm_nonce ~implicit_iv:write_iv ~seq_num in
       let aad =
-        build_gcm_aad
+        build_aad
           ~epoch:t.epoch
           ~seq_num
           ~content_type:ApplicationData
@@ -1928,11 +1659,7 @@ let decrypt t data =
           (* Build AAD - length is plaintext length (ciphertext - tag) *)
           let plaintext_len = ciphertext_len - gcm_tag_size in
           let aad =
-            build_gcm_aad
-              ~epoch
-              ~seq_num
-              ~content_type:ApplicationData
-              ~length:plaintext_len
+            build_aad ~epoch ~seq_num ~content_type:ApplicationData ~length:plaintext_len
           in
           (* Decrypt with AES-GCM *)
           let key = Mirage_crypto.AES.GCM.of_secret (Bytes.to_string read_key) in
@@ -2027,152 +1754,16 @@ let pp_state fmt = function
   | ClientKeyExchangeReceived -> Format.fprintf fmt "ClientKeyExchangeReceived"
 ;;
 
-(** {1 Retransmission (RFC 6347 Section 4.2.4)} *)
+(** {1 Retransmission — delegated to Dtls_retransmit} *)
 
-(** Maximum retransmit timeout per RFC 6347 *)
-let max_retransmit_timeout_ms = 60000
+let store_flight = Dtls_retransmit.store_flight
+let clear_retransmit = Dtls_retransmit.clear_retransmit
+let handle_retransmit_timeout = Dtls_retransmit.handle_retransmit_timeout
+let check_retransmit_needed = Dtls_retransmit.check_retransmit_needed
+let get_retransmit_state = Dtls_retransmit.get_retransmit_state
 
-(** Calculate next timeout with exponential backoff.
-    RFC 6347: timeout doubles on each retransmit, capped at 60 seconds. *)
-let next_retransmit_timeout current_ms = min (current_ms * 2) max_retransmit_timeout_ms
+(** {1 I/O Operations — delegated to Dtls_io} *)
 
-(** Store a flight for potential retransmission.
-    Called after sending a handshake flight. *)
-let store_flight (t : t) (flight : bytes list) =
-  let now = perform Now in
-  t.retransmit.last_flight <- flight;
-  t.retransmit.retransmit_count <- 0;
-  t.retransmit.current_timeout_ms <- t.config.retransmit_timeout_ms;
-  t.retransmit.flight_sent_at <- now;
-  t.retransmit.timer_active <- true;
-  perform (SetTimer t.retransmit.current_timeout_ms)
-;;
-
-(** Clear retransmission state when handshake progresses.
-    Called when a valid response is received. *)
-let clear_retransmit (t : t) =
-  if t.retransmit.timer_active
-  then (
-    perform CancelTimer;
-    t.retransmit.timer_active <- false);
-  t.retransmit.last_flight <- [];
-  t.retransmit.retransmit_count <- 0;
-  t.retransmit.current_timeout_ms <- t.config.retransmit_timeout_ms
-;;
-
-(** Handle retransmission timer expiry.
-    Returns the flight to retransmit, or Error if max retransmits exceeded.
-
-    RFC 6347 Section 4.2.4:
-    "If the timer expires, the implementation retransmits the flight,
-     resets the timer, and doubles the timeout value." *)
-let handle_retransmit_timeout (t : t) : (bytes list, string) result =
-  if not t.retransmit.timer_active
-  then Ok [] (* Timer was cancelled, nothing to do *)
-  else if t.retransmit.retransmit_count >= t.config.max_retransmits
-  then (
-    (* Max retransmits exceeded - fail the handshake *)
-    t.retransmit.timer_active <- false;
-    t.state <- Error "Handshake timeout: max retransmits exceeded";
-    Error "Max retransmits exceeded")
-  else (
-    (* Retransmit the flight *)
-    t.retransmit.retransmit_count <- t.retransmit.retransmit_count + 1;
-    t.retransmit.current_timeout_ms
-    <- next_retransmit_timeout t.retransmit.current_timeout_ms;
-    t.retransmit.flight_sent_at <- perform Now;
-    perform (SetTimer t.retransmit.current_timeout_ms);
-    Ok t.retransmit.last_flight)
-;;
-
-(** Check if retransmission is needed based on elapsed time.
-    Useful for polling-based timer implementations. *)
-let check_retransmit_needed (t : t) : bool =
-  if not t.retransmit.timer_active
-  then false
-  else (
-    let now = perform Now in
-    let elapsed_ms = int_of_float ((now -. t.retransmit.flight_sent_at) *. 1000.0) in
-    elapsed_ms >= t.retransmit.current_timeout_ms)
-;;
-
-(** Get current retransmission state for debugging/monitoring *)
-let get_retransmit_state (t : t) =
-  ( t.retransmit.retransmit_count
-  , t.retransmit.current_timeout_ms
-  , t.retransmit.timer_active )
-;;
-
-(** {1 I/O Operations (Functional Dependency Injection)} *)
-
-(** I/O operations for DTLS transport.
-    This abstraction allows different transport implementations:
-    - Eio UDP sockets (production)
-    - Mock transport (testing) *)
-type io_ops =
-  { send : bytes -> int (** Send data, returns bytes sent *)
-  ; recv : int -> bytes (** Receive up to N bytes (blocking) *)
-  ; now : unit -> float (** Get current timestamp *)
-  ; random : int -> bytes (** Generate N cryptographically secure random bytes *)
-  ; set_timer : int -> unit (** Set retransmission timer (ms), callback on timeout *)
-  ; cancel_timer : unit -> unit (** Cancel pending retransmission timer *)
-  }
-
-(** Default I/O ops using Unix and Mirage_crypto *)
-let default_io_ops =
-  { send = (fun _ -> 0)
-  ; (* No-op for testing *)
-    recv = (fun _ -> Bytes.empty)
-  ; now = Time_compat.now
-  ; random =
-      (fun n ->
-        (* Mirage_crypto_rng.generate returns string in newer versions *)
-        Bytes.of_string (Mirage_crypto_rng.generate n))
-  ; set_timer = (fun _ -> ())
-  ; (* No-op for testing *)
-    cancel_timer = (fun () -> ()) (* No-op for testing *)
-  }
-;;
-
-(** {1 Effect Handler (for Eio integration)} *)
-
-(** Run DTLS code with custom I/O operations.
-    This is the primary API - works with any transport implementation.
-    @param ops I/O operations (send, recv, now, random, set_timer, cancel_timer)
-    @param f The DTLS function to run *)
-let run_with_io ~ops f =
-  try_with
-    f
-    ()
-    { effc =
-        (fun (type a) (eff : a Effect.t) ->
-          match eff with
-          | Send data ->
-            Some
-              (fun (k : (a, _) continuation) ->
-                let bytes_sent = ops.send data in
-                continue k bytes_sent)
-          | Recv size ->
-            Some
-              (fun (k : (a, _) continuation) ->
-                let data = ops.recv size in
-                continue k data)
-          | Now -> Some (fun (k : (a, _) continuation) -> continue k (ops.now ()))
-          | Random n -> Some (fun (k : (a, _) continuation) -> continue k (ops.random n))
-          | SetTimer ms ->
-            Some
-              (fun (k : (a, _) continuation) ->
-                ops.set_timer ms;
-                continue k ())
-          | CancelTimer ->
-            Some
-              (fun (k : (a, _) continuation) ->
-                ops.cancel_timer ();
-                continue k ())
-          | _ -> None)
-    }
-;;
-
-(** Legacy wrapper for backward compatibility.
-    Uses default no-op I/O - prefer run_with_io for production. *)
-let run_with_eio ~net:_ ~clock:_ f = run_with_io ~ops:default_io_ops f
+let default_io_ops = Dtls_io.default_io_ops
+let run_with_io = Dtls_io.run_with_io
+let run_with_eio = Dtls_io.run_with_eio
