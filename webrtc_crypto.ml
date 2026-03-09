@@ -163,12 +163,35 @@ let aes_gcm_decrypt ~key ~implicit_iv ~explicit_nonce ~aad ~ciphertext_and_tag =
   | None -> Error "AES-GCM authentication failed"
 ;;
 
+(** {1 RNG Initialization} *)
+
+(** Initialize the cryptographic RNG if not already done.
+    Safe to call multiple times — subsequent calls are no-ops.
+    Catches Failure (already initialized) and Sys_error (entropy unavailable). *)
+let ensure_rng_initialized () =
+  try Mirage_crypto_rng_unix.use_default () with
+  | Failure _ | Sys_error _ -> ()
+;;
+
 (** {1 Utilities} *)
 
-(** Generate random bytes using mirage-crypto-rng *)
+(** Generate cryptographic random bytes (Cstruct.t output) *)
 let random_bytes n =
-  Mirage_crypto_rng_unix.use_default ();
+  ensure_rng_initialized ();
   Cstruct.of_string (Mirage_crypto_rng.generate n)
+;;
+
+(** Generate cryptographic random bytes (Bytes.t output) *)
+let random_bytes_raw n =
+  ensure_rng_initialized ();
+  Bytes.of_string (Mirage_crypto_rng.generate n)
+;;
+
+(** Generate cryptographic random int32 *)
+let random_int32 () =
+  ensure_rng_initialized ();
+  let s = Mirage_crypto_rng.generate 4 in
+  String.get_int32_be s 0
 ;;
 
 (** Generate client/server random (32 bytes with timestamp prefix) *)

@@ -81,8 +81,7 @@ let default_ice_config =
 ;;
 
 let create ?(ice_config = default_ice_config) ~role () =
-  (* Initialize crypto RNG *)
-  Dtls_eio.ensure_rng_initialized ();
+  Webrtc_crypto.ensure_rng_initialized ();
   let is_client = role = Client in
   { role
   ; state = New

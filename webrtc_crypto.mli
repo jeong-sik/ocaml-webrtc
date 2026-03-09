@@ -146,12 +146,29 @@ val aes_gcm_decrypt
   -> ciphertext_and_tag:Cstruct.t
   -> (Cstruct.t, string) result
 
+(** {1 RNG Initialization} *)
+
+(** Initialize the cryptographic RNG if not already done.
+    Safe to call multiple times — subsequent calls are no-ops.
+    Catches [Failure] (already initialized) and [Sys_error] (entropy unavailable). *)
+val ensure_rng_initialized : unit -> unit
+
 (** {1 Random Generation} *)
 
-(** [random_bytes n] generates n cryptographically random bytes.
+(** [random_bytes n] generates n cryptographically random bytes (Cstruct.t).
 
     Uses mirage-crypto-rng with system entropy. *)
 val random_bytes : int -> Cstruct.t
+
+(** [random_bytes_raw n] generates n cryptographically random bytes (Bytes.t).
+
+    Convenience wrapper for protocol code that works with [Bytes.t]. *)
+val random_bytes_raw : int -> bytes
+
+(** [random_int32 ()] generates a cryptographic random [int32].
+
+    Reads 4 bytes from mirage-crypto-rng and interprets as big-endian int32. *)
+val random_int32 : unit -> int32
 
 (** [generate_random ()] generates a 32-byte TLS random value.
 
