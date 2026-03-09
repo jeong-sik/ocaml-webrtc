@@ -38,8 +38,10 @@ let read_uint48_be buf offset =
 
 (** {1 Buffer Utilities} *)
 
-(** Create a buffer filled with random bytes *)
-let random_bytes len =
+(** Fill a buffer with non-cryptographic random bytes (stdlib Random).
+    NOT suitable for security-sensitive purposes such as keys, nonces, or IDs.
+    Use {!Webrtc_crypto.random_bytes_raw} for cryptographic randomness. *)
+let random_fill_insecure len =
   let buf = Bytes.create len in
   for i = 0 to len - 1 do
     Bytes.set_uint8 buf i (Random.int 256)

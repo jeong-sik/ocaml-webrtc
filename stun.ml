@@ -276,13 +276,7 @@ let set_uint32_be buf off v =
    Transaction ID
    ============================================ *)
 
-let generate_transaction_id () =
-  let id = Bytes.create 12 in
-  for i = 0 to 11 do
-    Bytes.set id i (Char.chr (Random.int 256))
-  done;
-  id
-;;
+let generate_transaction_id () = Webrtc_crypto.random_bytes_raw 12
 
 (* ============================================
    Message Type Encoding
@@ -1039,11 +1033,6 @@ let build_tls_authenticator ?tls_ca () =
     load_ca_certificates path
     |> Result.map (fun certs ->
       X509.Authenticator.chain_of_trust ~time:(fun () -> Some (Ptime_clock.now ())) certs)
-;;
-
-let ensure_tls_rng () =
-  try Mirage_crypto_rng_unix.use_default () with
-  | _ -> ()
 ;;
 
 let unix_error_to_string = function

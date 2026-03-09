@@ -370,22 +370,32 @@ let candidate_to_string c =
 
 (** {1 Agent Creation and Management} *)
 
+(** Unbiased random char selection via rejection sampling.
+    Rejects bytes >= (256 - 256 mod charset_len) to avoid modulo bias. *)
+let random_char_unbiased chars charset_len =
+  let limit = 256 - (256 mod charset_len) in
+  let rec go () =
+    let b = Char.code (Bytes.get (Webrtc_crypto.random_bytes_raw 1) 0) in
+    if b < limit then chars.[b mod charset_len] else go ()
+  in
+  go ()
+;;
+
 (** Generate random credentials *)
 let generate_ufrag () =
   let chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" in
   let len = String.length chars in
-  String.init 4 (fun _ -> chars.[Random.int len])
+  String.init 4 (fun _ -> random_char_unbiased chars len)
 ;;
 
 let generate_pwd () =
   let chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/" in
   let len = String.length chars in
-  String.init 22 (fun _ -> chars.[Random.int len])
+  String.init 22 (fun _ -> random_char_unbiased chars len)
 ;;
 
 (** Create new ICE agent *)
 let create config =
-  Random.self_init ();
   { state = New
   ; gathering_state = Gathering_new
   ; local_candidates = []
@@ -839,7 +849,10 @@ let set_end_of_candidates agent =
 (** {1 Connectivity Checks - RFC 8445 Section 6} *)
 
 (** Generate a tie-breaker value for ICE *)
-let generate_tie_breaker () = Random.int64 Int64.max_int
+let generate_tie_breaker () =
+  let rand = Webrtc_crypto.random_bytes_raw 8 in
+  Bytes.get_int64_be rand 0
+;;
 
 (** Get all candidate pairs *)
 let get_pairs agent = agent.pairs

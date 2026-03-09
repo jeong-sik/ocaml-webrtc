@@ -111,13 +111,7 @@ let default_config = { initial_rto_ms = 500; max_rto_ms = 3000; max_attempts = 7
 (** {1 Creation} *)
 
 (** Generate random transaction ID (96 bits) *)
-let generate_transaction_id () =
-  let id = Bytes.create 12 in
-  for i = 0 to 11 do
-    Bytes.set id i (Char.chr (Random.int 256))
-  done;
-  id
-;;
+let generate_transaction_id () = Webrtc_crypto.random_bytes_raw 12
 
 (** Create a new connectivity check *)
 let create
