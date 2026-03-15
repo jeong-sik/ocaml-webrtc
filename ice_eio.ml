@@ -91,7 +91,9 @@ let gather_srflx t ~stun_server ~local_addr ~local_port =
     if String.starts_with ~prefix:Webrtc_constants.stun_url_prefix stun_server
     then (
       let prefix_len = String.length Webrtc_constants.stun_url_prefix in
-      let rest = String.sub stun_server prefix_len (String.length stun_server - prefix_len) in
+      let rest =
+        String.sub stun_server prefix_len (String.length stun_server - prefix_len)
+      in
       match String.split_on_char ':' rest with
       | [ h; p ] -> h, int_of_string p
       | [ h ] -> h, Webrtc_constants.stun_default_port

@@ -468,7 +468,9 @@ let discover_local_ip () =
   try
     (* Use Google's DNS as reference point - no actual data is sent *)
     let sock = Unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in
-    let addr = Unix.ADDR_INET (Unix.inet_addr_of_string Webrtc_constants.google_dns, 80) in
+    let addr =
+      Unix.ADDR_INET (Unix.inet_addr_of_string Webrtc_constants.google_dns, 80)
+    in
     Unix.connect sock addr;
     let local_addr = Unix.getsockname sock in
     Unix.close sock;

@@ -371,6 +371,7 @@ let default_session =
   ; media = []
   ; other_attrs = []
   }
+;;
 
 (** {1 Main Parser} *)
 
