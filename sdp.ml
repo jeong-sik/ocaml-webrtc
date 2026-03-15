@@ -271,9 +271,14 @@ let parse_media_line line =
 
 let parse_candidate line =
   (* a=candidate:<foundation> <component-id> <transport> <priority> <address> <port> typ <type> [extensions] *)
+  let candidate_prefix = "candidate:" in
   let line =
-    if String.length line > 10 && String.sub line 0 10 = "candidate:"
-    then String.sub line 10 (String.length line - 10)
+    if String.starts_with ~prefix:candidate_prefix line
+    then
+      String.sub
+        line
+        (String.length candidate_prefix)
+        (String.length line - String.length candidate_prefix)
     else line
   in
   let parts = split_on_char ' ' line in
@@ -334,40 +339,44 @@ let parse_fingerprint line =
   | _ -> Error "Invalid fingerprint"
 ;;
 
+(** {1 Default Session} *)
+
+(** Default SDP session with RFC 4566 placeholder values.
+    Reused in parsing (as initial accumulator) and in media_to_string. *)
+let default_session =
+  { version = 0
+  ; origin =
+      { username = Webrtc_constants.sdp_default_username
+      ; sess_id = Webrtc_constants.sdp_default_session_id
+      ; sess_version = 0L
+      ; net_type = IN
+      ; addr_type = IP4
+      ; unicast_address = Webrtc_constants.sdp_default_address
+      }
+  ; session_name = Webrtc_constants.sdp_default_session_name
+  ; session_info = None
+  ; uri = None
+  ; emails = []
+  ; phones = []
+  ; connection = None
+  ; bandwidths = []
+  ; timings = []
+  ; ice_lite = false
+  ; ice_ufrag = None
+  ; ice_pwd = None
+  ; ice_options = []
+  ; fingerprint = None
+  ; groups = []
+  ; msid_semantic = None
+  ; media = []
+  ; other_attrs = []
+  }
+
 (** {1 Main Parser} *)
 
 let parse sdp =
   let lines =
     String.split_on_char '\n' sdp |> List.map trim |> List.filter (fun l -> l <> "")
-  in
-  let default_session =
-    { version = 0
-    ; origin =
-        { username = "-"
-        ; sess_id = "0"
-        ; sess_version = 0L
-        ; net_type = IN
-        ; addr_type = IP4
-        ; unicast_address = "0.0.0.0"
-        }
-    ; session_name = "-"
-    ; session_info = None
-    ; uri = None
-    ; emails = []
-    ; phones = []
-    ; connection = None
-    ; bandwidths = []
-    ; timings = []
-    ; ice_lite = false
-    ; ice_ufrag = None
-    ; ice_pwd = None
-    ; ice_options = []
-    ; fingerprint = None
-    ; groups = []
-    ; msid_semantic = None
-    ; media = []
-    ; other_attrs = []
-    }
   in
   let rec parse_lines session current_media = function
     | [] ->
@@ -597,35 +606,7 @@ let rec to_string session =
     session.media;
   Buffer.contents buf
 
-and media_to_string m =
-  to_string
-    { version = 0
-    ; origin =
-        { username = "-"
-        ; sess_id = "0"
-        ; sess_version = 0L
-        ; net_type = IN
-        ; addr_type = IP4
-        ; unicast_address = "0.0.0.0"
-        }
-    ; session_name = "-"
-    ; session_info = None
-    ; uri = None
-    ; emails = []
-    ; phones = []
-    ; connection = None
-    ; bandwidths = []
-    ; timings = []
-    ; ice_lite = false
-    ; ice_ufrag = None
-    ; ice_pwd = None
-    ; ice_options = []
-    ; fingerprint = None
-    ; groups = []
-    ; msid_semantic = None
-    ; media = [ m ]
-    ; other_attrs = []
-    }
+and media_to_string m = to_string { default_session with media = [ m ] }
 
 and candidate_to_string c =
   let base =
@@ -653,9 +634,9 @@ and candidate_to_string c =
 (** {1 Offer/Answer Helpers} *)
 
 let create_datachannel_offer ~ice_ufrag ~ice_pwd ~fingerprint ~sctp_port =
-  { version = 0
-  ; origin =
-      { username = "-"
+  { default_session with
+    origin =
+      { username = Webrtc_constants.sdp_default_username
       ; sess_id =
           Int32.to_string (Int32.logand (Webrtc_crypto.random_int32 ()) 0x7FFFFFFFl)
       ; sess_version = 1L
@@ -663,25 +644,18 @@ let create_datachannel_offer ~ice_ufrag ~ice_pwd ~fingerprint ~sctp_port =
       ; addr_type = IP4
       ; unicast_address = "127.0.0.1"
       }
-  ; session_name = "-"
-  ; session_info = None
-  ; uri = None
-  ; emails = []
-  ; phones = []
+  ; session_name = Webrtc_constants.sdp_default_session_name
   ; connection =
       Some
         { net_type = IN
         ; addr_type = IP4
-        ; address = "0.0.0.0"
+        ; address = Webrtc_constants.sdp_default_address
         ; ttl = None
         ; num_addresses = None
         }
-  ; bandwidths = []
   ; timings = [ { start_time = 0L; stop_time = 0L } ]
-  ; ice_lite = false
   ; ice_ufrag = Some ice_ufrag
   ; ice_pwd = Some ice_pwd
-  ; ice_options = []
   ; fingerprint = Some fingerprint
   ; groups = [ "BUNDLE", [ "0" ] ]
   ; msid_semantic = Some ("WMS", [])
@@ -943,7 +917,7 @@ module OfferAnswer = struct
     else (
       (* Generate offer SDP from media list *)
       let origin =
-        { username = "-"
+        { username = Webrtc_constants.sdp_default_username
         ; sess_id =
             Int32.to_string (Int32.logand (Webrtc_crypto.random_int32 ()) 0x7FFFFFFFl)
         ; sess_version = 1L
@@ -953,25 +927,10 @@ module OfferAnswer = struct
         }
       in
       let session =
-        { version = 0
-        ; origin
-        ; session_name = "-"
-        ; session_info = None
-        ; uri = None
-        ; emails = []
-        ; phones = []
-        ; connection = None
-        ; bandwidths = []
+        { default_session with
+          origin
         ; timings = [ { start_time = 0L; stop_time = 0L } ]
-        ; ice_lite = false
-        ; ice_ufrag = None
-        ; ice_pwd = None
-        ; ice_options = []
-        ; fingerprint = None
-        ; groups = []
-        ; msid_semantic = None
         ; media = media_list
-        ; other_attrs = []
         }
       in
       Ok { sdp_type = Offer; sdp = session })
@@ -991,7 +950,7 @@ module OfferAnswer = struct
       | None -> Error (InvalidStateTransition "No remote offer to answer")
       | Some remote ->
         let origin =
-          { username = "-"
+          { username = Webrtc_constants.sdp_default_username
           ; sess_id =
               Int32.to_string (Int32.logand (Webrtc_crypto.random_int32 ()) 0x7FFFFFFFl)
           ; sess_version = 1L
@@ -1001,25 +960,13 @@ module OfferAnswer = struct
           }
         in
         let session =
-          { version = 0
-          ; origin
-          ; session_name = "-"
-          ; session_info = None
-          ; uri = None
-          ; emails = []
-          ; phones = []
-          ; connection = None
-          ; bandwidths = []
+          { default_session with
+            origin
           ; timings = [ { start_time = 0L; stop_time = 0L } ]
-          ; ice_lite = false
           ; ice_ufrag = remote.sdp.ice_ufrag
           ; ice_pwd = remote.sdp.ice_pwd
           ; ice_options = remote.sdp.ice_options
-          ; fingerprint = None
-          ; groups = []
-          ; msid_semantic = None
           ; media = media_list
-          ; other_attrs = []
           }
         in
         Ok { sdp_type = Answer; sdp = session })
