@@ -28,7 +28,7 @@ type t =
 let create ?(config = Ice.default_config) () =
   { agent = Ice.create config
   ; socket = None
-  ; recv_buffer = Bytes.create 65536
+  ; recv_buffer = Bytes.create Webrtc_constants.recv_buffer_size
   ; on_candidate = None
   ; on_state_change = None
   ; on_gathering_complete = None
@@ -88,14 +88,17 @@ let recv_udp fd ~buf =
 let gather_srflx t ~stun_server ~local_addr ~local_port =
   (* Parse STUN server URL *)
   let host, port =
-    if String.length stun_server > 5 && String.sub stun_server 0 5 = "stun:"
+    if String.starts_with ~prefix:Webrtc_constants.stun_url_prefix stun_server
     then (
-      let rest = String.sub stun_server 5 (String.length stun_server - 5) in
+      let prefix_len = String.length Webrtc_constants.stun_url_prefix in
+      let rest =
+        String.sub stun_server prefix_len (String.length stun_server - prefix_len)
+      in
       match String.split_on_char ':' rest with
       | [ h; p ] -> h, int_of_string p
-      | [ h ] -> h, 3478
-      | _ -> rest, 3478)
-    else stun_server, 3478
+      | [ h ] -> h, Webrtc_constants.stun_default_port
+      | _ -> rest, Webrtc_constants.stun_default_port)
+    else stun_server, Webrtc_constants.stun_default_port
   in
   try
     (* Create STUN binding request *)
@@ -107,7 +110,7 @@ let gather_srflx t ~stun_server ~local_addr ~local_port =
     | Some fd ->
       ignore (send_udp fd ~data:request_bytes ~host ~port);
       (* Wait for response with timeout (simple polling) *)
-      let buf = Bytes.create 1500 in
+      let buf = Bytes.create Webrtc_constants.mtu_buffer_size in
       let deadline = Time_compat.now () +. 3.0 in
       let rec wait () =
         if Time_compat.now () >= deadline

@@ -66,7 +66,7 @@ type t =
 let default_ice_config =
   { Ice.role = Ice.Controlling
   ; ice_servers =
-      [ { Ice.urls = [ "stun:stun.l.google.com:19302" ]
+      [ { Ice.urls = [ Webrtc_constants.google_stun_server ]
         ; username = None
         ; credential = None
         ; tls_ca = None
@@ -91,7 +91,7 @@ let create ?(ice_config = default_ice_config) ~role () =
   ; channels = []
   ; next_channel_id = (if is_client then 0 else 1)
   ; (* Even/odd allocation *)
-    recv_buffer = Bytes.create 65536
+    recv_buffer = Bytes.create Webrtc_constants.recv_buffer_size
   ; on_state_change = None
   ; on_datachannel = None
   ; on_ice_candidate = None

@@ -165,6 +165,12 @@ type session =
   ; other_attrs : (string * string option) list
   }
 
+(** {1 Defaults} *)
+
+(** Default SDP session with RFC 4566 placeholder values.
+    Reused in parsing and serialization. *)
+val default_session : session
+
 (** {1 Parsing} *)
 
 (** Parse SDP string to session description *)

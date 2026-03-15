@@ -143,7 +143,7 @@ type agent =
 let default_config =
   { role = Controlling
   ; ice_servers =
-      [ { urls = [ "stun:stun.l.google.com:19302" ]
+      [ { urls = [ Webrtc_constants.google_stun_server ]
         ; username = None
         ; credential = None
         ; tls_ca = None
@@ -441,11 +441,11 @@ let notify_local_candidate agent candidate =
 
 (** {2 Network Interface Discovery} *)
 
-(** Check if IP address is loopback (127.x.x.x) *)
-let is_loopback ip = String.length ip >= 4 && String.sub ip 0 4 = "127."
+(** Check if IP address is loopback (127.x.x.x) - RFC 5735 *)
+let is_loopback ip = String.starts_with ~prefix:Webrtc_constants.loopback_prefix ip
 
-(** Check if IP address is link-local (169.254.x.x) *)
-let is_link_local ip = String.length ip >= 8 && String.sub ip 0 8 = "169.254."
+(** Check if IP address is link-local (169.254.x.x) - RFC 3927 *)
+let is_link_local ip = String.starts_with ~prefix:Webrtc_constants.link_local_prefix ip
 
 (** Check if IP address is private (RFC 1918) *)
 let is_private_ip ip =
@@ -468,7 +468,9 @@ let discover_local_ip () =
   try
     (* Use Google's DNS as reference point - no actual data is sent *)
     let sock = Unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in
-    let addr = Unix.ADDR_INET (Unix.inet_addr_of_string "8.8.8.8", 80) in
+    let addr =
+      Unix.ADDR_INET (Unix.inet_addr_of_string Webrtc_constants.google_dns, 80)
+    in
     Unix.connect sock addr;
     let local_addr = Unix.getsockname sock in
     Unix.close sock;
@@ -482,7 +484,12 @@ let discover_local_ip () =
 (** Discover local IP for a specific STUN server *)
 let discover_local_ip_for_server server_host =
   try
-    let addrs = Unix.getaddrinfo server_host "3478" [ Unix.AI_FAMILY Unix.PF_INET ] in
+    let addrs =
+      Unix.getaddrinfo
+        server_host
+        (string_of_int Webrtc_constants.stun_default_port)
+        [ Unix.AI_FAMILY Unix.PF_INET ]
+    in
     match addrs with
     | [] -> None
     | addr :: _ ->
@@ -709,15 +716,20 @@ let gather_host_candidates agent =
 let parse_stun_url url =
   (* Format: stun:host:port or stun:host *)
   let url =
-    if String.sub url 0 5 = "stun:" then String.sub url 5 (String.length url - 5) else url
+    if String.starts_with ~prefix:Webrtc_constants.stun_url_prefix url
+    then
+      String.sub
+        url
+        (String.length Webrtc_constants.stun_url_prefix)
+        (String.length url - String.length Webrtc_constants.stun_url_prefix)
+    else url
   in
   match String.split_on_char ':' url with
   | [ host; port_str ] ->
     (match int_of_string_opt port_str with
      | Some port -> Some (host, port)
-     | None -> Some (host, 3478))
-    (* Default STUN port *)
-  | [ host ] -> Some (host, 3478)
+     | None -> Some (host, Webrtc_constants.stun_default_port))
+  | [ host ] -> Some (host, Webrtc_constants.stun_default_port)
   | _ -> None
 ;;
 
@@ -729,19 +741,34 @@ let parse_stun_url url =
 let parse_turn_url url =
   (* Remove protocol prefix *)
   let url, is_tls =
-    if String.length url >= 6 && String.sub url 0 6 = "turns:"
-    then String.sub url 6 (String.length url - 6), true
-    else if String.length url >= 5 && String.sub url 0 5 = "turn:"
-    then String.sub url 5 (String.length url - 5), false
+    if String.starts_with ~prefix:Webrtc_constants.turns_url_prefix url
+    then
+      ( String.sub
+          url
+          (String.length Webrtc_constants.turns_url_prefix)
+          (String.length url - String.length Webrtc_constants.turns_url_prefix)
+      , true )
+    else if String.starts_with ~prefix:Webrtc_constants.turn_url_prefix url
+    then
+      ( String.sub
+          url
+          (String.length Webrtc_constants.turn_url_prefix)
+          (String.length url - String.length Webrtc_constants.turn_url_prefix)
+      , false )
     else url, false
+  in
+  let default_port =
+    if is_tls
+    then Webrtc_constants.turns_default_port
+    else Webrtc_constants.stun_default_port
   in
   (* Parse host and port *)
   match String.split_on_char ':' url with
   | [ host; port_str ] ->
     (match int_of_string_opt port_str with
      | Some port -> Some (host, port, is_tls)
-     | None -> Some (host, (if is_tls then 5349 else 3478), is_tls))
-  | [ host ] -> Some (host, (if is_tls then 5349 else 3478), is_tls)
+     | None -> Some (host, default_port, is_tls))
+  | [ host ] -> Some (host, default_port, is_tls)
   | _ -> None
 ;;
 
