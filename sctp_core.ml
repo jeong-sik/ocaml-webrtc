@@ -728,7 +728,18 @@ let queue_user_data t ~stream_id ~data =
     (* Bundle pending SACK with DATA - reduces packet count *)
     (match t.pending_sack_chunk with
      | Some sack_chunk ->
-       ignore (Sctp_bundling.add_chunk t.bundler sack_chunk);
+       (match Sctp_bundling.add_chunk t.bundler sack_chunk with
+        | Some flushed_bundle ->
+          (* Bundler was full: emit the flushed packet before continuing *)
+          let packet =
+            Sctp_bundling.assemble_packet
+              ~vtag:t.peer_vtag
+              ~src_port:t.src_port
+              ~dst_port:t.dst_port
+              flushed_bundle
+          in
+          outputs := SendPacket packet :: !outputs
+        | None -> ());
        t.pending_sack_chunk <- None
      | None -> ());
     (* Fragment if needed *)

@@ -68,7 +68,16 @@ let create_socket ~host ~port =
 let send_udp fd ~data ~host ~port =
   let addr = Unix.ADDR_INET (Unix.inet_addr_of_string host, port) in
   try
-    let _ = Unix.sendto fd data 0 (Bytes.length data) [] addr in
+    let data_len = Bytes.length data in
+    let bytes_sent = Unix.sendto fd data 0 data_len [] addr in
+    if bytes_sent < data_len
+    then
+      Printf.eprintf
+        "[WARN] UDP sendto partial send: %d/%d bytes to %s:%d\n%!"
+        bytes_sent
+        data_len
+        host
+        port;
     Ok ()
   with
   | Unix.Unix_error (e, _, _) -> Error (Unix.error_message e)

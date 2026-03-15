@@ -478,7 +478,13 @@ let discover_local_ip () =
     | Unix.ADDR_INET (ip, _) -> Some (Unix.string_of_inet_addr ip)
     | _ -> None
   with
-  | Unix.Unix_error _ -> None
+  | Unix.Unix_error (err, func, arg) ->
+    Printf.eprintf
+      "[WARN] discover_local_ip: Unix error: %s (func=%s, arg=%s)\n%!"
+      (Unix.error_message err)
+      func
+      arg;
+    None
 ;;
 
 (** Discover local IP for a specific STUN server *)
@@ -501,7 +507,19 @@ let discover_local_ip_for_server server_host =
        | Unix.ADDR_INET (ip, _) -> Some (Unix.string_of_inet_addr ip)
        | _ -> None)
   with
-  | Unix.Unix_error _ | Not_found -> None
+  | Unix.Unix_error (err, func, arg) ->
+    Printf.eprintf
+      "[WARN] discover_local_ip_for_server(%s): Unix error: %s (func=%s, arg=%s)\n%!"
+      server_host
+      (Unix.error_message err)
+      func
+      arg;
+    None
+  | Not_found ->
+    Printf.eprintf
+      "[WARN] discover_local_ip_for_server(%s): host not found\n%!"
+      server_host;
+    None
 ;;
 
 (** Parse IPv4 address from ifconfig/ip output line *)
