@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-03-16
+
+### Added
+- `Webrtc_constants` module — centralized RFC constants with section comments
+
+### Changed
+- Migrate `String.sub` prefix checks to `String.starts_with` in ice.ml, ice_eio.ml, sdp.ml
+- Extract duplicate `default_session` in sdp.ml — 5 copies to 1 shared value
+- Replace hardcoded port/buffer/address values with `Webrtc_constants`
+
+### Fixed
+- **SCTP bundle data loss** — flushed bundles from `Sctp_bundling.add_chunk` now emitted instead of discarded
+- **UDP sendto partial send** — `ice_eio.ml` detects and warns on short writes
+- **Unix error context** — `discover_local_ip` logs `Unix.Unix_error` details instead of silent `None`
+
 ## [0.2.1] - 2026-03-09
 
 ### Security
