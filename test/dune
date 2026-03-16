@@ -304,3 +304,7 @@
 (test
  (name fault_injection_test)
  (libraries webrtc))
+
+(test
+ (name lifecycle_test)
+ (libraries webrtc))

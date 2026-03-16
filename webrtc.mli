@@ -78,6 +78,7 @@ module Dtls_functor = Dtls_functor
 (** {1 Error Classification} *)
 
 module Oas_error = Oas_error
+module Lifecycle = Lifecycle
 
 (** {1 Version Info} *)
 
