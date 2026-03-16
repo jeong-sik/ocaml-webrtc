@@ -75,6 +75,10 @@ module Time_compat = Time_compat
 module Transport_intf = Transport_intf
 module Dtls_functor = Dtls_functor
 
+(** {1 Error Classification} *)
+
+module Oas_error = Oas_error
+
 (** {1 Version Info} *)
 
 val version : string

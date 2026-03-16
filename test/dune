@@ -296,3 +296,7 @@
  (deps ../ice.ml)
  (action
   (run %{exe:no_shell_test.exe} %{dep:../ice.ml})))
+
+(test
+ (name oas_error_test)
+ (libraries webrtc))

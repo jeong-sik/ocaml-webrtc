@@ -180,6 +180,11 @@ module Transport_intf = Transport_intf
 module Dtls_functor = Dtls_functor
 (** DTLS with functor-based transport *)
 
+(** {1 Error Classification} *)
+
+(** Structured error classification for recovery decisions *)
+module Oas_error = Oas_error
+
 (** Library version *)
 let version = "0.1.0"
 
