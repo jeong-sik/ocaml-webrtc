@@ -300,3 +300,7 @@
 (test
  (name oas_error_test)
  (libraries webrtc))
+
+(test
+ (name fault_injection_test)
+ (libraries webrtc))
