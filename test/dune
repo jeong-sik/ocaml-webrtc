@@ -308,3 +308,7 @@
 (test
  (name lifecycle_test)
  (libraries webrtc))
+
+(test
+ (name replay_test)
+ (libraries webrtc))
