@@ -312,3 +312,7 @@
 (test
  (name replay_test)
  (libraries webrtc))
+
+(test
+ (name harness_integration_test)
+ (libraries webrtc))
