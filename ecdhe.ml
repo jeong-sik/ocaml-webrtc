@@ -79,11 +79,11 @@ let () = Mirage_crypto_rng_unix.use_default ()
 
 (** Generate ephemeral key pair using a first-class ECDH module *)
 let generate_key
-  (type s)
-  (module C : Mirage_crypto_ec.Dh with type secret = s)
-  ~(curve : named_curve)
-  ~(curve_name : string)
-  ()
+      (type s)
+      (module C : Mirage_crypto_ec.Dh with type secret = s)
+      ~(curve : named_curve)
+      ~(curve_name : string)
+      ()
   : (keypair, string) result
   =
   try
@@ -93,16 +93,17 @@ let generate_key
     Ok { curve; private_key = priv_cs; public_key = pub_cs }
   with
   | exn ->
-    Error (Printf.sprintf "%s key generation failed: %s" curve_name (Printexc.to_string exn))
+    Error
+      (Printf.sprintf "%s key generation failed: %s" curve_name (Printexc.to_string exn))
 ;;
 
 (** Compute shared secret using a first-class ECDH module *)
 let compute_shared
-  (type s)
-  (module C : Mirage_crypto_ec.Dh with type secret = s)
-  ~(curve_name : string)
-  ~private_key
-  ~peer_public_key
+      (type s)
+      (module C : Mirage_crypto_ec.Dh with type secret = s)
+      ~(curve_name : string)
+      ~private_key
+      ~peer_public_key
   : (Cstruct.t, string) result
   =
   let priv_str = Cstruct.to_string private_key in

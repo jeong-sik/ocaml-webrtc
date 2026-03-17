@@ -86,7 +86,9 @@ let test_dtls_with_eio () =
     then (
       Log.warn "Too many iterations!";
       false)
-    else if Dtls.is_established (Dtls_eio.dtls client) && Dtls.is_established (Dtls_eio.dtls server)
+    else if
+      Dtls.is_established (Dtls_eio.dtls client)
+      && Dtls.is_established (Dtls_eio.dtls server)
     then (
       Printf.printf "\n✅ DTLS Handshake complete!\n%!";
       true)
@@ -96,7 +98,9 @@ let test_dtls_with_eio () =
         match Simulated_network.recv_from_client () with
         | Some data ->
           let client_addr = "127.0.0.1", 5000 in
-          (match Dtls.handle_record_as_server (Dtls_eio.dtls server) data ~client_addr with
+          (match
+             Dtls.handle_record_as_server (Dtls_eio.dtls server) data ~client_addr
+           with
            | Ok (records, _) ->
              if records <> []
              then (
@@ -196,7 +200,9 @@ let test_sctp_over_dtls () =
   let rec quick_handshake n =
     if n > 20
     then false
-    else if Dtls.is_established (Dtls_eio.dtls client_dtls) && Dtls.is_established (Dtls_eio.dtls server_dtls)
+    else if
+      Dtls.is_established (Dtls_eio.dtls client_dtls)
+      && Dtls.is_established (Dtls_eio.dtls server_dtls)
     then true
     else (
       Dtls.run_with_io ~ops:io_ops (fun () ->
