@@ -75,7 +75,7 @@ let test_dtls_with_eio () =
     }
   in
   Dtls.run_with_io ~ops:io_ops (fun () ->
-    match Dtls.start_handshake client.dtls with
+    match Dtls.start_handshake (Dtls_eio.dtls client) with
     | Ok records ->
       Printf.printf "   Sent %d record(s)\n%!" (List.length records);
       List.iter Simulated_network.send_to_server records
@@ -86,7 +86,7 @@ let test_dtls_with_eio () =
     then (
       Log.warn "Too many iterations!";
       false)
-    else if Dtls.is_established client.dtls && Dtls.is_established server.dtls
+    else if Dtls.is_established (Dtls_eio.dtls client) && Dtls.is_established (Dtls_eio.dtls server)
     then (
       Printf.printf "\n✅ DTLS Handshake complete!\n%!";
       true)
@@ -96,7 +96,7 @@ let test_dtls_with_eio () =
         match Simulated_network.recv_from_client () with
         | Some data ->
           let client_addr = "127.0.0.1", 5000 in
-          (match Dtls.handle_record_as_server server.dtls data ~client_addr with
+          (match Dtls.handle_record_as_server (Dtls_eio.dtls server) data ~client_addr with
            | Ok (records, _) ->
              if records <> []
              then (
@@ -108,7 +108,7 @@ let test_dtls_with_eio () =
       Dtls.run_with_io ~ops:io_ops (fun () ->
         match Simulated_network.recv_from_server () with
         | Some data ->
-          (match Dtls.handle_record client.dtls data with
+          (match Dtls.handle_record (Dtls_eio.dtls client) data with
            | Ok (records, _) ->
              if records <> []
              then (
@@ -126,16 +126,16 @@ let test_dtls_with_eio () =
     Printf.printf "\n=== Testing Encrypted Echo ===\n\n";
     let test_msg = Bytes.of_string "Hello from Eio WebRTC!" in
     Printf.printf "Client sends: %s\n%!" (Bytes.to_string test_msg);
-    match Dtls.encrypt client.dtls test_msg with
+    match Dtls.encrypt (Dtls_eio.dtls client) test_msg with
     | Ok encrypted ->
       Printf.printf "Encrypted: %d bytes\n%!" (Bytes.length encrypted);
-      (match Dtls.decrypt server.dtls encrypted with
+      (match Dtls.decrypt (Dtls_eio.dtls server) encrypted with
        | Ok decrypted ->
          Printf.printf "Server received: %s\n%!" (Bytes.to_string decrypted);
          (* Echo back *)
-         (match Dtls.encrypt server.dtls decrypted with
+         (match Dtls.encrypt (Dtls_eio.dtls server) decrypted with
           | Ok echo_enc ->
-            (match Dtls.decrypt client.dtls echo_enc with
+            (match Dtls.decrypt (Dtls_eio.dtls client) echo_enc with
              | Ok echo ->
                Printf.printf "Client received echo: %s\n\n%!" (Bytes.to_string echo);
                if Bytes.equal test_msg echo
@@ -190,13 +190,13 @@ let test_sctp_over_dtls () =
   in
   (* Quick handshake *)
   Dtls.run_with_io ~ops:io_ops (fun () ->
-    match Dtls.start_handshake client_dtls.dtls with
+    match Dtls.start_handshake (Dtls_eio.dtls client_dtls) with
     | Ok records -> List.iter Simulated_network.send_to_server records
     | Error _ -> ());
   let rec quick_handshake n =
     if n > 20
     then false
-    else if Dtls.is_established client_dtls.dtls && Dtls.is_established server_dtls.dtls
+    else if Dtls.is_established (Dtls_eio.dtls client_dtls) && Dtls.is_established (Dtls_eio.dtls server_dtls)
     then true
     else (
       Dtls.run_with_io ~ops:io_ops (fun () ->
@@ -204,7 +204,7 @@ let test_sctp_over_dtls () =
         | Some data ->
           (match
              Dtls.handle_record_as_server
-               server_dtls.dtls
+               (Dtls_eio.dtls server_dtls)
                data
                ~client_addr:("127.0.0.1", 5000)
            with
@@ -214,7 +214,7 @@ let test_sctp_over_dtls () =
       Dtls.run_with_io ~ops:io_ops (fun () ->
         match Simulated_network.recv_from_server () with
         | Some data ->
-          (match Dtls.handle_record client_dtls.dtls data with
+          (match Dtls.handle_record (Dtls_eio.dtls client_dtls) data with
            | Ok (records, _) -> List.iter Simulated_network.send_to_server records
            | Error _ -> ())
         | None -> ());
@@ -240,11 +240,11 @@ let test_sctp_over_dtls () =
     Printf.printf "   SCTP associations initialized ✅\n%!";
     (* Wire SCTP through DTLS *)
     let send_via_dtls dtls_ctx data =
-      match Dtls.encrypt dtls_ctx.Dtls_eio.dtls data with
+      match Dtls.encrypt (Dtls_eio.dtls dtls_ctx) data with
       | Ok encrypted -> encrypted
       | Error _ -> Bytes.empty
     in
-    let decrypt_from_dtls dtls_ctx data = Dtls.decrypt dtls_ctx.Dtls_eio.dtls data in
+    let decrypt_from_dtls dtls_ctx data = Dtls.decrypt (Dtls_eio.dtls dtls_ctx) data in
     (* Test DataChannel-style message *)
     Printf.printf "3. Sending DataChannel message...\n%!";
     let message = Bytes.of_string "Hello, WebRTC DataChannel!" in

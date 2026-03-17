@@ -14,6 +14,8 @@
     @since ocaml-webrtc 0.4.0
 *)
 
+(** {1 Types} *)
+
 type stats = Sctp_full_transport.stats =
   { mutable messages_sent : int
   ; mutable messages_recv : int
@@ -25,10 +27,8 @@ type stats = Sctp_full_transport.stats =
   ; mutable fast_retransmissions : int
   }
 
-type t =
-  { inner : Sctp_full_transport.t
-  ; mutable running : bool
-  }
+(** Opaque Eio-enhanced SCTP transport *)
+type t
 
 val create
   :  ?config:Sctp.config
