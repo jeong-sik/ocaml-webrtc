@@ -66,155 +66,116 @@ let private_key_size = function
   | X25519 -> 32
 ;;
 
+(** {1 RNG initialization} *)
+
+(** Initialize RNG at module load time (once per process) *)
+let () = Mirage_crypto_rng_unix.use_default ()
+
+(** {1 First-class module for ECDH operations}
+
+    All mirage-crypto-ec DH modules (P256.Dh, P384.Dh, P521.Dh, X25519)
+    conform to the [Mirage_crypto_ec.Dh] module type. We use first-class
+    modules to factor out the identical generate/compute logic. *)
+
+(** Generate ephemeral key pair using a first-class ECDH module *)
+let generate_key
+  (type s)
+  (module C : Mirage_crypto_ec.Dh with type secret = s)
+  ~(curve : named_curve)
+  ~(curve_name : string)
+  ()
+  : (keypair, string) result
+  =
+  try
+    let priv, pub_str = C.gen_key () in
+    let priv_cs = Cstruct.of_string (C.secret_to_octets priv) in
+    let pub_cs = Cstruct.of_string pub_str in
+    Ok { curve; private_key = priv_cs; public_key = pub_cs }
+  with
+  | exn ->
+    Error (Printf.sprintf "%s key generation failed: %s" curve_name (Printexc.to_string exn))
+;;
+
+(** Compute shared secret using a first-class ECDH module *)
+let compute_shared
+  (type s)
+  (module C : Mirage_crypto_ec.Dh with type secret = s)
+  ~(curve_name : string)
+  ~private_key
+  ~peer_public_key
+  : (Cstruct.t, string) result
+  =
+  let priv_str = Cstruct.to_string private_key in
+  let peer_pub_str = Cstruct.to_string peer_public_key in
+  match C.secret_of_octets priv_str with
+  | Error _ -> Error (Printf.sprintf "Invalid %s private key" curve_name)
+  | Ok (priv, _pub) ->
+    (match C.key_exchange priv peer_pub_str with
+     | Ok shared -> Ok (Cstruct.of_string shared)
+     | Error _ -> Error (Printf.sprintf "%s ECDH key exchange failed" curve_name))
+;;
+
 (** {1 Key Generation} *)
 
-(** Generate ephemeral ECDHE key pair for P-256
-    mirage-crypto-ec 1.2.0 API:
-    - gen_key () returns (secret, public_key_string)
-    - secret_to_octets converts secret to string
-    - Public key is already in uncompressed format (04 || X || Y) *)
-let generate_p256 () : (keypair, string) result =
-  try
-    (* Initialize RNG if needed *)
-    Mirage_crypto_rng_unix.use_default ();
-    (* Generate P-256 key pair using mirage-crypto-ec *)
-    (* Returns (secret, public_key_string) where public_key is uncompressed *)
-    let priv, pub_str = Mirage_crypto_ec.P256.Dh.gen_key () in
-    (* Extract private key as octets and convert to Cstruct *)
-    let priv_str = Mirage_crypto_ec.P256.Dh.secret_to_octets priv in
-    let priv_cs = Cstruct.of_string priv_str in
-    (* Public key is already a string in uncompressed format (04 || X || Y) *)
-    let pub_cs = Cstruct.of_string pub_str in
-    Ok { curve = Secp256r1; private_key = priv_cs; public_key = pub_cs }
-  with
-  | exn ->
-    Error (Printf.sprintf "P-256 key generation failed: %s" (Printexc.to_string exn))
+(** Generate P-256 key pair (WebRTC default) *)
+let generate_p256 () =
+  generate_key (module Mirage_crypto_ec.P256.Dh) ~curve:Secp256r1 ~curve_name:"P-256" ()
 ;;
 
-(** Generate ephemeral ECDHE key pair for P-384 *)
-let generate_p384 () : (keypair, string) result =
-  try
-    Mirage_crypto_rng_unix.use_default ();
-    let priv, pub_str = Mirage_crypto_ec.P384.Dh.gen_key () in
-    let priv_str = Mirage_crypto_ec.P384.Dh.secret_to_octets priv in
-    let priv_cs = Cstruct.of_string priv_str in
-    let pub_cs = Cstruct.of_string pub_str in
-    Ok { curve = Secp384r1; private_key = priv_cs; public_key = pub_cs }
-  with
-  | exn ->
-    Error (Printf.sprintf "P-384 key generation failed: %s" (Printexc.to_string exn))
+(** Generate P-384 key pair *)
+let generate_p384 () =
+  generate_key (module Mirage_crypto_ec.P384.Dh) ~curve:Secp384r1 ~curve_name:"P-384" ()
 ;;
 
-(** Generate ephemeral ECDHE key pair for P-521 *)
-let generate_p521 () : (keypair, string) result =
-  try
-    Mirage_crypto_rng_unix.use_default ();
-    let priv, pub_str = Mirage_crypto_ec.P521.Dh.gen_key () in
-    let priv_str = Mirage_crypto_ec.P521.Dh.secret_to_octets priv in
-    let priv_cs = Cstruct.of_string priv_str in
-    let pub_cs = Cstruct.of_string pub_str in
-    Ok { curve = Secp521r1; private_key = priv_cs; public_key = pub_cs }
-  with
-  | exn ->
-    Error (Printf.sprintf "P-521 key generation failed: %s" (Printexc.to_string exn))
+(** Generate P-521 key pair *)
+let generate_p521 () =
+  generate_key (module Mirage_crypto_ec.P521.Dh) ~curve:Secp521r1 ~curve_name:"P-521" ()
 ;;
 
-(** Generate key pair for X25519 (Curve25519)
-    Same API as P-256: gen_key returns (secret, public_key_string) *)
-let generate_x25519 () : (keypair, string) result =
-  try
-    Mirage_crypto_rng_unix.use_default ();
-    (* gen_key returns (secret, public_key_string) *)
-    let priv, pub_str = Mirage_crypto_ec.X25519.gen_key () in
-    (* secret_to_octets converts secret to string *)
-    let priv_str = Mirage_crypto_ec.X25519.secret_to_octets priv in
-    let priv_cs = Cstruct.of_string priv_str in
-    let pub_cs = Cstruct.of_string pub_str in
-    Ok { curve = X25519; private_key = priv_cs; public_key = pub_cs }
-  with
-  | exn ->
-    Error (Printf.sprintf "X25519 key generation failed: %s" (Printexc.to_string exn))
+(** Generate X25519 key pair *)
+let generate_x25519 () =
+  generate_key (module Mirage_crypto_ec.X25519) ~curve:X25519 ~curve_name:"X25519" ()
 ;;
 
 (** Generate key pair for specified curve *)
 let generate ~curve : (keypair, string) result =
   match curve with
   | Secp256r1 -> generate_p256 ()
-  | X25519 -> generate_x25519 ()
   | Secp384r1 -> generate_p384 ()
   | Secp521r1 -> generate_p521 ()
+  | X25519 -> generate_x25519 ()
 ;;
 
 (** {1 Key Exchange (Shared Secret Computation)} *)
 
-(** Compute shared secret from our private key and peer's public key (P-256)
-    mirage-crypto-ec 1.2.0 API:
-    - secret_of_octets: string -> (secret * string, error) result
-    - key_exchange: secret -> string -> (string, error) result *)
-let compute_shared_secret_p256 ~private_key ~peer_public_key : (Cstruct.t, string) result =
-  let priv_str = Cstruct.to_string private_key in
-  let peer_pub_str = Cstruct.to_string peer_public_key in
-  (* Parse our private key from octets *)
-  match Mirage_crypto_ec.P256.Dh.secret_of_octets priv_str with
-  | Error _ -> Error "Invalid P-256 private key"
-  | Ok (priv, _pub) ->
-    (* Compute shared secret (ECDH) directly with peer's public key string *)
-    (match Mirage_crypto_ec.P256.Dh.key_exchange priv peer_pub_str with
-     | Ok shared -> Ok (Cstruct.of_string shared)
-     | Error _ -> Error "P-256 ECDH key exchange failed")
-;;
-
-(** Compute shared secret for P-384 *)
-let compute_shared_secret_p384 ~private_key ~peer_public_key : (Cstruct.t, string) result =
-  let priv_str = Cstruct.to_string private_key in
-  let peer_pub_str = Cstruct.to_string peer_public_key in
-  match Mirage_crypto_ec.P384.Dh.secret_of_octets priv_str with
-  | Error _ -> Error "Invalid P-384 private key"
-  | Ok (priv, _pub) ->
-    (match Mirage_crypto_ec.P384.Dh.key_exchange priv peer_pub_str with
-     | Ok shared -> Ok (Cstruct.of_string shared)
-     | Error _ -> Error "P-384 ECDH key exchange failed")
-;;
-
-(** Compute shared secret for P-521 *)
-let compute_shared_secret_p521 ~private_key ~peer_public_key : (Cstruct.t, string) result =
-  let priv_str = Cstruct.to_string private_key in
-  let peer_pub_str = Cstruct.to_string peer_public_key in
-  match Mirage_crypto_ec.P521.Dh.secret_of_octets priv_str with
-  | Error _ -> Error "Invalid P-521 private key"
-  | Ok (priv, _pub) ->
-    (match Mirage_crypto_ec.P521.Dh.key_exchange priv peer_pub_str with
-     | Ok shared -> Ok (Cstruct.of_string shared)
-     | Error _ -> Error "P-521 ECDH key exchange failed")
-;;
-
-(** Compute shared secret for X25519
-    Same API pattern as P-256: need to parse private key with secret_of_octets first *)
-let compute_shared_secret_x25519 ~private_key ~peer_public_key
-  : (Cstruct.t, string) result
-  =
-  let priv_str = Cstruct.to_string private_key in
-  let peer_pub_str = Cstruct.to_string peer_public_key in
-  (* Parse private key from octets *)
-  match Mirage_crypto_ec.X25519.secret_of_octets priv_str with
-  | Error _ -> Error "Invalid X25519 private key"
-  | Ok (priv, _pub) ->
-    (match Mirage_crypto_ec.X25519.key_exchange priv peer_pub_str with
-     | Ok shared -> Ok (Cstruct.of_string shared)
-     | Error _ -> Error "X25519 key exchange failed")
-;;
-
 (** Compute shared secret (pre-master secret for TLS) *)
 let compute_shared_secret ~keypair ~peer_public_key : (Cstruct.t, string) result =
+  let private_key = keypair.private_key in
   match keypair.curve with
   | Secp256r1 ->
-    compute_shared_secret_p256 ~private_key:keypair.private_key ~peer_public_key
+    compute_shared
+      (module Mirage_crypto_ec.P256.Dh)
+      ~curve_name:"P-256"
+      ~private_key
+      ~peer_public_key
   | Secp384r1 ->
-    compute_shared_secret_p384 ~private_key:keypair.private_key ~peer_public_key
+    compute_shared
+      (module Mirage_crypto_ec.P384.Dh)
+      ~curve_name:"P-384"
+      ~private_key
+      ~peer_public_key
   | Secp521r1 ->
-    compute_shared_secret_p521 ~private_key:keypair.private_key ~peer_public_key
+    compute_shared
+      (module Mirage_crypto_ec.P521.Dh)
+      ~curve_name:"P-521"
+      ~private_key
+      ~peer_public_key
   | X25519 ->
-    compute_shared_secret_x25519 ~private_key:keypair.private_key ~peer_public_key
+    compute_shared
+      (module Mirage_crypto_ec.X25519)
+      ~curve_name:"X25519"
+      ~private_key
+      ~peer_public_key
 ;;
 
 (** {1 Wire Format Encoding/Decoding} *)
