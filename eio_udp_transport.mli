@@ -22,14 +22,8 @@ type stats = Udp_transport.stats =
   ; mutable recv_errors : int
   }
 
-type t = Udp_transport.t =
-  { socket : Unix.file_descr
-  ; local_endpoint : endpoint
-  ; mutable remote_endpoint : endpoint option
-  ; mutable remote_sockaddr : Unix.sockaddr option
-  ; stats : stats
-  ; mutable closed : bool
-  }
+(** Opaque transport handle *)
+type t
 
 val create_stats : unit -> stats
 val get_stats : t -> stats

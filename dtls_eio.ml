@@ -77,6 +77,7 @@ let on_error t f = t.on_error <- Some f
 
 (** {1 State Access} *)
 
+let dtls t = t.dtls
 let is_established t = Dtls.is_established t.dtls
 let get_state t = Dtls.get_state t.dtls
 let get_cipher_suite t = Dtls.get_cipher_suite t.dtls
