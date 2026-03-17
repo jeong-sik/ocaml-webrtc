@@ -36,7 +36,9 @@
   ipaddr
   ; Async (optional, for Eio backend)
   eio
-  eio_posix)
+  eio_posix
+  ; Time compatibility from mcp-protocol-sdk
+  mcp_protocol_eio)
  ; C stubs for hardware-accelerated CRC32c (ARM64/x86_64)
  (foreign_stubs
   (language c)
