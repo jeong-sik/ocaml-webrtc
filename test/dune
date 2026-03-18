@@ -296,3 +296,23 @@
  (deps ../ice.ml)
  (action
   (run %{exe:no_shell_test.exe} %{dep:../ice.ml})))
+
+(test
+ (name oas_error_test)
+ (libraries webrtc))
+
+(test
+ (name fault_injection_test)
+ (libraries webrtc))
+
+(test
+ (name lifecycle_test)
+ (libraries webrtc))
+
+(test
+ (name replay_test)
+ (libraries webrtc))
+
+(test
+ (name harness_integration_test)
+ (libraries webrtc))
