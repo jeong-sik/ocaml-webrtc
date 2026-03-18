@@ -19,18 +19,18 @@
 
 (** Error classification. Determines the recovery strategy. *)
 type error_class =
-  | Transient  (** Temporary condition — retry after backoff *)
-  | Protocol   (** Protocol violation or malformed data *)
-  | Fatal      (** Unrecoverable — must tear down *)
-  | Config     (** Invalid configuration or wrong state *)
+  | Transient (** Temporary condition — retry after backoff *)
+  | Protocol (** Protocol violation or malformed data *)
+  | Fatal (** Unrecoverable — must tear down *)
+  | Config (** Invalid configuration or wrong state *)
 [@@deriving show, eq]
 
 (** Structured error carrying classification and the raw message. *)
-type t = {
-  cls : error_class;
-  message : string;
-  module_hint : string;  (** Originating module (best-effort) *)
-}
+type t =
+  { cls : error_class
+  ; message : string
+  ; module_hint : string (** Originating module (best-effort) *)
+  }
 [@@deriving show, eq]
 
 (** [classify msg] inspects a raw error string and returns its class.

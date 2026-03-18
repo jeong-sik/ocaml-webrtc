@@ -16,20 +16,20 @@
 
 (** Connection establishment phases. *)
 type phase =
-  | Init                (** Initial state, no resources allocated *)
-  | Ice_gathering       (** ICE candidates being gathered *)
-  | Dtls_handshake      (** DTLS handshake in progress *)
-  | Sctp_association    (** SCTP 4-way handshake *)
-  | Data_channel        (** DataChannel negotiation (DCEP) *)
-  | Established         (** Ready for data transfer *)
+  | Init (** Initial state, no resources allocated *)
+  | Ice_gathering (** ICE candidates being gathered *)
+  | Dtls_handshake (** DTLS handshake in progress *)
+  | Sctp_association (** SCTP 4-way handshake *)
+  | Data_channel (** DataChannel negotiation (DCEP) *)
+  | Established (** Ready for data transfer *)
 [@@deriving show, eq]
 
 (** Phase failure information. *)
-type failure = {
-  failed_phase : phase;
-  error : Oas_error.t;
-  cleaned_phases : phase list;  (** Phases that were cleaned up *)
-}
+type failure =
+  { failed_phase : phase
+  ; error : Oas_error.t
+  ; cleaned_phases : phase list (** Phases that were cleaned up *)
+  }
 [@@deriving show, eq]
 
 (** Resource cleanup action for a phase. *)
