@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-03-18
+
+### Added
+- Harness engineering — error classification with `Error_class.t` taxonomy,
+  fault injection (`Fault_injector`), lifecycle management (`Harness_lifecycle`),
+  deterministic replay (`Harness_replay`) (#40)
+
+### Changed
+- Migrate `Time_compat` to `mcp-protocol-sdk` shared module (#43)
+
+### Fixed
+- Regenerate opam file to reflect version 0.2.3 (#42)
+- Add `mcp_protocol` opam pins for CI dependency resolution (#44)
+
+## [0.2.3] - 2026-03-17
+
+### Changed
+- ECDHE first-class modules — extract `Ecdhe_method.S` signature with abstract
+  `.mli` types for `P256` and `X25519` implementations (#41)
+
 ## [0.2.2] - 2026-03-16
 
 ### Added
