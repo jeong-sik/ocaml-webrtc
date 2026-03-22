@@ -1040,11 +1040,20 @@ let unix_error_to_string = function
   | err -> Unix.error_message err
 ;;
 
-let error_of_exn = function
+(** Convert TLS/network exceptions to error strings.
+    Covers all documented exceptions from Tls_unix (Tls_alert, Tls_failure,
+    Closed_by_peer), Unix socket errors, and EOF. Unknown exceptions re-raise
+    instead of being silently swallowed. *)
+let error_of_tls_exn = function
   | Unix.Unix_error (err, _, _) -> unix_error_to_string err
   | Tls_unix.Closed_by_peer -> "TLS closed by peer"
   | End_of_file -> "TLS EOF"
-  | exn -> Printexc.to_string exn
+  | Tls_unix.Tls_alert alert ->
+    Printf.sprintf "TLS alert: %s" (Tls.Packet.alert_type_to_string alert)
+  | Tls_unix.Tls_failure failure ->
+    Printf.sprintf "TLS failure: %s" (Tls.Engine.string_of_failure failure)
+  | Invalid_argument msg -> Printf.sprintf "Invalid argument: %s" msg
+  | other -> raise other
 ;;
 
 let set_socket_timeouts sock timeout_s =
@@ -1075,9 +1084,9 @@ let connect_tcp_with_timeout ~host ~port ~timeout_s =
               | None -> Ok ()
               | Some err -> Error (Unix.error_message err))
           | exception Unix.Unix_error (err, _, _) -> Error (Unix.error_message err)
-          | exception exn -> Error (Printexc.to_string exn)
         with
-        | exn -> Error (Printexc.to_string exn)
+        | Unix.Unix_error (err, fn, _) ->
+          Error (Printf.sprintf "%s: %s" fn (Unix.error_message err))
       in
       (match connect_result with
        | Ok () ->
@@ -1115,7 +1124,9 @@ let read_stun_frame_tls tls =
     if msg_len > 0 then Tls_unix.really_read tls buf ~off:20 ~len:msg_len;
     Ok buf
   with
-  | exn -> Error (error_of_exn exn)
+  | Unix.Unix_error _ | Tls_unix.Closed_by_peer | End_of_file
+  | Tls_unix.Tls_alert _ | Tls_unix.Tls_failure _ | Invalid_argument _ as exn ->
+    Error (error_of_tls_exn exn)
 ;;
 
 let write_tls tls data =
@@ -1123,7 +1134,9 @@ let write_tls tls data =
     Tls_unix.write tls (Bytes.to_string data);
     Ok ()
   with
-  | exn -> Error (error_of_exn exn)
+  | Unix.Unix_error _ | Tls_unix.Closed_by_peer | End_of_file
+  | Tls_unix.Tls_alert _ | Tls_unix.Tls_failure _ | Invalid_argument _ as exn ->
+    Error (error_of_tls_exn exn)
 ;;
 
 (* ============================================
