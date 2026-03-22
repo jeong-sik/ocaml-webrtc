@@ -1124,9 +1124,12 @@ let read_stun_frame_tls tls =
     if msg_len > 0 then Tls_unix.really_read tls buf ~off:20 ~len:msg_len;
     Ok buf
   with
-  | Unix.Unix_error _ | Tls_unix.Closed_by_peer | End_of_file
-  | Tls_unix.Tls_alert _ | Tls_unix.Tls_failure _ | Invalid_argument _ as exn ->
-    Error (error_of_tls_exn exn)
+  | ( Unix.Unix_error _
+    | Tls_unix.Closed_by_peer
+    | End_of_file
+    | Tls_unix.Tls_alert _
+    | Tls_unix.Tls_failure _
+    | Invalid_argument _ ) as exn -> Error (error_of_tls_exn exn)
 ;;
 
 let write_tls tls data =
@@ -1134,9 +1137,12 @@ let write_tls tls data =
     Tls_unix.write tls (Bytes.to_string data);
     Ok ()
   with
-  | Unix.Unix_error _ | Tls_unix.Closed_by_peer | End_of_file
-  | Tls_unix.Tls_alert _ | Tls_unix.Tls_failure _ | Invalid_argument _ as exn ->
-    Error (error_of_tls_exn exn)
+  | ( Unix.Unix_error _
+    | Tls_unix.Closed_by_peer
+    | End_of_file
+    | Tls_unix.Tls_alert _
+    | Tls_unix.Tls_failure _
+    | Invalid_argument _ ) as exn -> Error (error_of_tls_exn exn)
 ;;
 
 (* ============================================
