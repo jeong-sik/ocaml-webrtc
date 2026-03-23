@@ -479,8 +479,8 @@ let discover_local_ip () =
     | _ -> None
   with
   | Unix.Unix_error (err, func, arg) ->
-    Printf.eprintf
-      "[WARN] discover_local_ip: Unix error: %s (func=%s, arg=%s)\n%!"
+    Log.warn
+      "discover_local_ip: Unix error: %s (func=%s, arg=%s)"
       (Unix.error_message err)
       func
       arg;
@@ -508,17 +508,15 @@ let discover_local_ip_for_server server_host =
        | _ -> None)
   with
   | Unix.Unix_error (err, func, arg) ->
-    Printf.eprintf
-      "[WARN] discover_local_ip_for_server(%s): Unix error: %s (func=%s, arg=%s)\n%!"
+    Log.warn
+      "discover_local_ip_for_server(%s): Unix error: %s (func=%s, arg=%s)"
       server_host
       (Unix.error_message err)
       func
       arg;
     None
   | Not_found ->
-    Printf.eprintf
-      "[WARN] discover_local_ip_for_server(%s): host not found\n%!"
-      server_host;
+    Log.warn "discover_local_ip_for_server(%s): host not found" server_host;
     None
 ;;
 
