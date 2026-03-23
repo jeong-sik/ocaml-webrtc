@@ -32,13 +32,15 @@ let prf_sha256 ~secret ~label ~seed ~length =
     |> Cstruct.of_string
   in
   let label_seed = Cstruct.concat [ Cstruct.of_string label; seed ] in
-  (* P_hash(secret, seed) = HMAC(secret, A(1) + seed) + HMAC(secret, A(2) + seed) + ... *)
+  (* P_hash(secret, seed) = HMAC(secret, A(1) + seed) + HMAC(secret, A(2) + seed) + ...
+     where A(0) = seed, A(i) = HMAC(secret, A(i-1))
+     Each iteration: output_i = HMAC(secret, A(i) + seed), then advance A. *)
   let rec p_hash acc a remaining =
     if remaining <= 0
     then Cstruct.sub (Cstruct.concat (List.rev acc)) 0 length
     else (
+      let output = hmac secret (Cstruct.concat [ a; label_seed ]) in
       let a_next = hmac secret a in
-      let output = hmac secret (Cstruct.concat [ a_next; label_seed ]) in
       p_hash (output :: acc) a_next (remaining - Cstruct.length output))
   in
   let a1 = hmac secret label_seed in
