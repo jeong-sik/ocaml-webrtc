@@ -72,8 +72,8 @@ let send_udp fd ~data ~host ~port =
     let bytes_sent = Unix.sendto fd data 0 data_len [] addr in
     if bytes_sent < data_len
     then
-      Printf.eprintf
-        "[WARN] UDP sendto partial send: %d/%d bytes to %s:%d\n%!"
+      Log.warn
+        "UDP sendto partial send: %d/%d bytes to %s:%d"
         bytes_sent
         data_len
         host
