@@ -26,5 +26,5 @@
   (digestif (>= 1.1.0))
   (logs (>= 0.7.0))
   (fmt (>= 0.9.0))
-  (mcp_protocol_eio (>= 0.13.0))
+  (mcp_protocol_eio (>= 0.15.0))
   (bisect_ppx (and :with-test (>= 2.8)))))
