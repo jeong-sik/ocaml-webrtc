@@ -11,12 +11,7 @@
 val record_header_size : int
 
 (** Build a 13-byte DTLS record header. *)
-val build_record_header
-  :  Dtls_types.content_type
-  -> int
-  -> int64
-  -> int
-  -> bytes
+val build_record_header : Dtls_types.content_type -> int -> int64 -> int -> bytes
 
 (** Build Additional Authenticated Data for AES-GCM.
     AAD = epoch || seq_num || content_type || version || plaintext_length. *)

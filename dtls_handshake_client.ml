@@ -8,15 +8,12 @@ open Effect
 open Dtls_types
 
 let random_bytes n = perform (Random n)
-
 let int_to_cipher_suite = Dtls_codec.int_to_cipher_suite
 let cipher_suite_to_int = Dtls_codec.cipher_suite_to_int
 let dtls_version_major = Dtls_codec.dtls_version_major
 let dtls_version_minor = Dtls_codec.dtls_version_minor
-
 let build_record_header = Dtls_record.build_record_header
 let encrypt_record = Dtls_record.encrypt_record
-
 let handshake_header_size = Dtls_codec.handshake_header_size
 let build_handshake_header = Dtls_codec.build_handshake_header
 let build_extensions = Dtls_codec.build_extensions

@@ -45,7 +45,4 @@ val handle_server_hello_done
   -> (bytes list * bytes option, string) result
 
 (** Handle server's Finished message. Verifies verify_data and transitions to Established. *)
-val handle_finished
-  :  Dtls_types.t
-  -> bytes
-  -> (bytes list * bytes option, string) result
+val handle_finished : Dtls_types.t -> bytes -> (bytes list * bytes option, string) result

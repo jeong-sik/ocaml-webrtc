@@ -141,8 +141,7 @@ let handle_handshake_message t msg_type data =
     Dtls_handshake_client.handle_hello_verify_request t data
   | ServerHello when t.config.is_client ->
     Dtls_handshake_client.handle_server_hello t data
-  | Certificate when t.config.is_client ->
-    Dtls_handshake_client.handle_certificate t data
+  | Certificate when t.config.is_client -> Dtls_handshake_client.handle_certificate t data
   | ServerKeyExchange when t.config.is_client ->
     Dtls_handshake_client.handle_server_key_exchange t data
   | ServerHelloDone when t.config.is_client ->
