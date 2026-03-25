@@ -20,3 +20,23 @@ val dtls_version_minor : int
 val use_srtp_extension_type : int
 val srtp_profile_to_id : Srtp.profile -> int
 val srtp_profile_of_id : int -> Srtp.profile option
+
+(** {1 Handshake Message Framing} *)
+
+val handshake_header_size : int
+
+val build_handshake_header
+  :  Dtls_types.handshake_type
+  -> int
+  -> int
+  -> int
+  -> int
+  -> bytes
+
+(** {1 SRTP Extension Codec} *)
+
+val build_use_srtp_extension : Srtp.profile list -> bytes
+val build_extensions : Srtp.profile list -> bytes
+val parse_use_srtp_extension : bytes -> Srtp.profile list
+val parse_extensions : bytes -> Srtp.profile list
+val select_srtp_profile : Srtp.profile list -> Srtp.profile list -> Srtp.profile option
