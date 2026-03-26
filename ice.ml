@@ -520,15 +520,21 @@ let discover_local_ip_for_server server_host =
     None
 ;;
 
+(** {2 Pre-compiled regex patterns (fiber-safe, O(1) per call)} *)
+
+let ipv4_re =
+  Re.Str.regexp {|inet[ \t]+\(addr:\)?\([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\)|}
+;;
+
+let fib_trie_local_re = Re.Str.regexp {|.*|-- \([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\)$|}
+let fib_trie_host_local_re = Re.Str.regexp {|.*/32 host LOCAL|}
+
 (** Parse IPv4 address from ifconfig/ip output line *)
 let extract_ipv4_from_line line =
   (* Match patterns like "inet 192.168.1.5" or "inet addr:192.168.1.5" *)
-  let ipv4_pattern =
-    Str.regexp {|inet[ \t]+\(addr:\)?\([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\)|}
-  in
-  if Str.string_match ipv4_pattern line 0
+  if Re.Str.string_match ipv4_re line 0
   then (
-    try Some (Str.matched_group 2 line) with
+    try Some (Re.Str.matched_group 2 line) with
     | Not_found | Invalid_argument _ -> None)
   else None
 ;;
@@ -576,7 +582,6 @@ let get_addresses_from_proc () =
   let addresses = ref [] in
   (try
      let ic = open_in "/proc/net/fib_trie" in
-     let local_pattern = Str.regexp {|.*|-- \([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\)$|} in
      let in_local_block = ref false in
      (try
         while true do
@@ -584,11 +589,11 @@ let get_addresses_from_proc () =
           (* Look for LOCAL entries which indicate assigned addresses *)
           if String.length line > 0
           then
-            if Str.string_match (Str.regexp {|.*/32 host LOCAL|}) line 0
+            if Re.Str.string_match fib_trie_host_local_re line 0
             then in_local_block := true
-            else if !in_local_block && Str.string_match local_pattern line 0
+            else if !in_local_block && Re.Str.string_match fib_trie_local_re line 0
             then (
-              let ip = Str.matched_group 1 line in
+              let ip = Re.Str.matched_group 1 line in
               if
                 (not (is_loopback ip))
                 && (not (is_link_local ip))
