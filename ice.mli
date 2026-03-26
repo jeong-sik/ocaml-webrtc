@@ -1,37 +1,22 @@
 (** RFC 8445 - Interactive Connectivity Establishment (ICE)
 
-    Pure OCaml implementation of ICE for WebRTC NAT traversal.
+    ICE agent coordination, state machine, Trickle ICE, consent freshness,
+    nomination, and keepalive.
 
-    ICE is responsible for:
-    - Gathering local candidates (host, server reflexive, relay)
-    - Processing remote candidates
-    - Connectivity checks between candidate pairs
-    - Selecting the best path for media/data
+    Candidate types, gathering, and discovery are in {!Ice_candidate}.
+    Connectivity checks (Sans-IO) are in {!Ice_check}.
 
-    Reference: https://datatracker.ietf.org/doc/html/rfc8445
+    Candidate types are re-exported so external callers see
+    [Ice.candidate] etc. without changes.
 *)
 
-(** {1 Types} *)
+(** {1 Candidate Types}
 
-(** ICE candidate types per RFC 8445 Section 4.1.1 *)
-type candidate_type =
-  | Host
-  | Server_reflexive
-  | Peer_reflexive
-  | Relay
+    Re-exported from {!Ice_candidate}. *)
 
-val pp_candidate_type : Format.formatter -> candidate_type -> unit
-val equal_candidate_type : candidate_type -> candidate_type -> bool
-val show_candidate_type : candidate_type -> string
+include module type of Ice_candidate
 
-(** Transport protocol *)
-type transport =
-  | UDP
-  | TCP
-
-val pp_transport : Format.formatter -> transport -> unit
-val equal_transport : transport -> transport -> bool
-val show_transport : transport -> string
+(** {1 Agent Types} *)
 
 (** ICE server configuration *)
 type ice_server =
@@ -49,22 +34,6 @@ type ice_role =
 val pp_ice_role : Format.formatter -> ice_role -> unit
 val equal_ice_role : ice_role -> ice_role -> bool
 val show_ice_role : ice_role -> string
-
-(** ICE candidate - represents a potential connection endpoint *)
-type candidate =
-  { foundation : string
-  ; component : int
-  ; transport : transport
-  ; priority : int
-  ; address : string
-  ; port : int
-  ; cand_type : candidate_type
-  ; base_address : string option
-  ; base_port : int option
-  ; related_address : string option
-  ; related_port : int option
-  ; extensions : (string * string) list
-  }
 
 (** ICE configuration *)
 type config =
@@ -160,65 +129,9 @@ val default_config : config
 
 (** {1 String Conversions} *)
 
-val string_of_candidate_type : candidate_type -> string
-val candidate_type_of_string : string -> candidate_type option
-val string_of_transport : transport -> string
-val transport_of_string : string -> transport option
 val string_of_connection_state : connection_state -> string
 val string_of_gathering_state : gathering_state -> string
 val string_of_pair_state : pair_state -> string
-
-(** {1 Priority Calculation - RFC 8445 Section 5.1.2} *)
-
-val type_preference : candidate_type -> int
-
-val calculate_priority
-  :  candidate_type:candidate_type
-  -> local_pref:int
-  -> component:int
-  -> int
-
-(** {1 Foundation Generation - RFC 8445 Section 5.1.1.3} *)
-
-val generate_foundation
-  :  candidate_type:candidate_type
-  -> base_address:string
-  -> ?stun_server:string
-  -> unit
-  -> string
-
-(** {1 Candidate Creation} *)
-
-val create_srflx_candidate
-  :  component:int
-  -> address:string
-  -> port:int
-  -> base_address:string
-  -> base_port:int
-  -> candidate
-
-val create_prflx_candidate
-  :  component:int
-  -> address:string
-  -> port:int
-  -> ?base_address:string
-  -> ?base_port:int
-  -> unit
-  -> candidate
-
-val create_relay_candidate
-  :  component:int
-  -> address:string
-  -> port:int
-  -> base_address:string
-  -> base_port:int
-  -> turn_server:string
-  -> candidate
-
-(** {1 Candidate Parsing - RFC 8445 Section 15.1} *)
-
-val parse_candidate : string -> (candidate, string) result
-val candidate_to_string : candidate -> string
 
 (** {1 Credential Generation} *)
 
@@ -236,24 +149,6 @@ val get_remote_candidates : agent -> candidate list
 (** {1 Candidate Gathering - RFC 8445 Section 5.1.1} *)
 
 val gather_host_candidates : agent -> candidate list
-
-(** {1 Network Interface Discovery} *)
-
-val is_loopback : string -> bool
-val is_link_local : string -> bool
-val is_private_ip : string -> bool
-val discover_local_ip : unit -> string option
-val discover_local_ip_for_server : string -> string option
-val extract_ipv4_from_line : string -> string option
-val get_addresses_from_ifconfig : unit -> string list
-val get_addresses_from_proc : unit -> string list
-val discover_addresses_via_routing : unit -> string list
-val get_local_addresses : unit -> string list
-
-(** {1 URL Parsing} *)
-
-val parse_stun_url : string -> (string * int) option
-val parse_turn_url : string -> (string * int * bool) option
 
 (** {1 Trickle ICE Support - RFC 8838} *)
 
@@ -323,7 +218,6 @@ val status_json
 
 (** {1 Pretty Printing} *)
 
-val pp_candidate : Format.formatter -> candidate -> unit
 val pp_pair : Format.formatter -> candidate_pair -> unit
 
 (** {1 RFC 5245 - ICE Improvements} *)
