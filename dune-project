@@ -27,4 +27,5 @@
   (logs (>= 0.7.0))
   (fmt (>= 0.9.0))
   (mcp_protocol_eio (>= 0.15.0))
+  (re (>= 1.10.0))
   (bisect_ppx (and :with-test (>= 2.8)))))
