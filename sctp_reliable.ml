@@ -367,7 +367,7 @@ let generate_sack t =
 (** {1 Sender: Process SACK, Update cwnd} *)
 
 (** Update RTO based on RTT measurement - RFC 6298 *)
-let update_rto t rtt =
+let update_rto (t : t) rtt =
   let rto = t.rto in
   if rto.srtt = 0.0
   then (
@@ -521,7 +521,7 @@ let get_stats t = t.stats
 let get_cwnd t = t.cc.cwnd
 let get_ssthresh t = t.cc.ssthresh
 let get_flight_size t = Sctp_ring_buffer.flight_size t.rtx_queue
-let get_rto t = t.rto.rto
+let get_rto (t : t) = t.rto.rto
 
 (** Check if all queued data has been acknowledged *)
 let all_acked t = Sctp_ring_buffer.is_empty t.rtx_queue

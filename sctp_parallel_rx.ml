@@ -237,14 +237,14 @@ let stop t =
 ;;
 
 (** Drain outputs from all RX domains (call from main domain) *)
-let drain_outputs t = Mpsc_queue.drain t.output_queue
+let drain_outputs (t : t) = Mpsc_queue.drain t.output_queue
 
 (** Aggregate stats from all domains
 
     NOTE: This is NOT thread-safe for reading domain stats.
     Call only when domains are paused or accept approximate values.
 *)
-let aggregate_stats t =
+let aggregate_stats (t : t) =
   let total =
     { total_packets_recv = 0
     ; total_bytes_recv = 0
@@ -270,7 +270,7 @@ let get_stats t =
 (** {1 Convenience Functions} *)
 
 (** Number of active RX domains *)
-let domain_count t = t.domain_count
+let domain_count (t : t) = t.domain_count
 
 (** Check if any domain is still running *)
 let is_running t = Array.exists (fun d -> d.running) t.domains

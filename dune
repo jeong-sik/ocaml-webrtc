@@ -47,8 +47,19 @@
    (:standard
     (:include c_flags.sexp))))
  (flags
-  (:standard -w -32-69))
- ; W32: unused value declarations are library API surface awaiting consumers
- ; W69: unused record fields are public API awaiting downstream consumers
+  (:standard -w +a-4-32-40-41-42-44-45-60-69-70
+             -warn-error +a-4-32-40-41-42-44-45-60-69-70))
+ ; Warn-error: all non-suppressed warnings are promoted to errors.
+ ; Suppressed warnings (each justified):
+ ; W4:  fragile-match — wildcard matches on state enums are intentional
+ ; W32: unused-value-declaration — library API surface awaiting consumers
+ ; W40: unused-constructor — library exposes variants for downstream use
+ ; W41: ambiguous-name — remaining cases after type annotations are safe
+ ; W42: disambiguated-name — OCaml 4.x compat noise, we target 5.1+
+ ; W44: open-shadow-identifier — normal module open patterns
+ ; W45: open-shadow-label — normal module open patterns
+ ; W60: unused-module — library submodules are public API
+ ; W69: unused-field — public API record fields awaiting consumers
+ ; W70: missing-mli — ppx-generated files lack .mli
  (preprocess
   (pps ppx_deriving.show ppx_deriving.eq)))
