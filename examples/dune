@@ -41,4 +41,12 @@
 (executable
  (name eio_datachannel)
  (modules eio_datachannel)
- (libraries log webrtc eio eio_main eio_posix unix mirage-crypto-rng mirage-crypto-rng.unix))
+ (libraries
+  log
+  webrtc
+  eio
+  eio_main
+  eio_posix
+  unix
+  mirage-crypto-rng
+  mirage-crypto-rng.unix))
