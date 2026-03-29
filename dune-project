@@ -1,8 +1,9 @@
-(lang dune 3.13)
+(lang dune 3.17)
 (name ocaml-webrtc)
 (version 0.2.6)
 
 (generate_opam_files true)
+(implicit_transitive_deps false)
 
 (license Apache-2.0)
 
@@ -12,7 +13,7 @@
  (description "Complete WebRTC stack: DTLS, SCTP, ICE, STUN, TURN")
  (depends
   (ocaml (>= 5.1))
-  (dune (>= 3.13))
+  (dune (>= 3.17))
   (ppx_deriving (>= 5.2))
   (eio (>= 1.0))
   (eio_main (and :with-test (>= 1.0)))

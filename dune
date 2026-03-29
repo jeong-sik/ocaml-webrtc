@@ -30,9 +30,12 @@
   mirage-crypto-ec ; ECDHE key exchange (RFC 8422)
   digestif
   x509
+  tls
   tls.unix
+  logs
   ptime.clock.os
   ; Networking
+  domain-name
   ipaddr
   ; Async (optional, for Eio backend)
   eio
