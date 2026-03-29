@@ -31,7 +31,7 @@
 (executable
  (name browser_media_smoke)
  (modules browser_media_smoke)
- (libraries log webrtc unix))
+ (libraries log webrtc unix x509))
 
 ; REMOVED: datachannel.ml uses Lwt (use eio_datachannel instead)
 ; (executable
@@ -41,4 +41,4 @@
 (executable
  (name eio_datachannel)
  (modules eio_datachannel)
- (libraries log webrtc eio eio_main eio_posix unix))
+ (libraries log webrtc eio eio_main eio_posix unix mirage-crypto-rng mirage-crypto-rng.unix))

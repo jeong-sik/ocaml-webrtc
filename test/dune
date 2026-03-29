@@ -20,7 +20,7 @@
 
 (executable
  (name eio_sctp_benchmark)
- (libraries webrtc eio eio_main eio_posix unix))
+ (libraries webrtc eio eio_main eio_posix unix cstruct))
 
 (executable
  (name ring_buffer_benchmark)
@@ -28,7 +28,7 @@
 
 (executable
  (name eio_udp_benchmark)
- (libraries webrtc eio eio_main eio_posix unix))
+ (libraries webrtc eio eio_main eio_posix unix cstruct))
 
 (executable
  (name sctp_profile_benchmark)
