@@ -6,6 +6,11 @@
 (implicit_transitive_deps false)
 
 (license Apache-2.0)
+(authors "Jeongsik Yun")
+(maintainers "Jeongsik Yun")
+(source (github jeong-sik/ocaml-webrtc))
+(homepage "https://github.com/jeong-sik/ocaml-webrtc")
+(bug_reports "https://github.com/jeong-sik/ocaml-webrtc/issues")
 
 (package
  (name ocaml-webrtc)
