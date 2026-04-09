@@ -522,7 +522,7 @@ let build_server_finished t =
   let finished_body =
     match t.handshake.master_secret with
     | Some master_secret ->
-      let messages_cs = List.rev_map Cstruct.of_bytes t.handshake.handshake_messages in
+      let messages_cs = List.rev_map (fun b -> Cstruct.of_bytes b) t.handshake.handshake_messages in
       let handshake_hash = Ecdhe.hash_handshake_messages messages_cs in
       let master_secret_cs = Cstruct.of_bytes master_secret in
       let verify_data =
@@ -594,7 +594,7 @@ let handle_finished_as_server t payload =
         | Some master_secret ->
           (* Hash all handshake messages (excluding this Finished) *)
           let messages_cs =
-            List.rev_map Cstruct.of_bytes t.handshake.handshake_messages
+            List.rev_map (fun b -> Cstruct.of_bytes b) t.handshake.handshake_messages
           in
           let handshake_hash = Ecdhe.hash_handshake_messages messages_cs in
           let master_secret_cs = Cstruct.of_bytes master_secret in

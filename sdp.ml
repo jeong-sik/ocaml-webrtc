@@ -712,7 +712,7 @@ let merge_ice_options base extra =
   List.fold_left add base extra
 ;;
 
-let restart_ice ~session ~ice_ufrag ~ice_pwd ?(ice_options = []) () =
+let restart_ice ~(session : session) ~ice_ufrag ~ice_pwd ?(ice_options = []) () =
   let combined_options = merge_ice_options session.ice_options ice_options in
   let update_media (m : media) =
     let merged = merge_ice_options m.ice_options combined_options in

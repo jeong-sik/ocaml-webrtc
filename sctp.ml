@@ -293,7 +293,7 @@ let association_info assoc =
 (** {1 Stream Management} *)
 
 (** Open a stream *)
-let open_stream assoc stream_id ?(ordered = true) () =
+let open_stream (assoc : association) stream_id ?(ordered = true) () =
   let stream = { id = stream_id; ordered; next_ssn = 0; next_tsn = assoc.next_tsn } in
   Hashtbl.replace assoc.streams stream_id stream;
   stream

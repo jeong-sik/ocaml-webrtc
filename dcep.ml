@@ -239,7 +239,7 @@ let get_channel t ~stream_id = Hashtbl.find_opt t.channels stream_id
 (** Get channel by label *)
 let get_channel_by_label t ~label =
   Hashtbl.fold
-    (fun _ ch acc ->
+    (fun _ (ch : channel) acc ->
        match acc with
        | Some _ -> acc
        | None -> if ch.label = label then Some ch else None)
